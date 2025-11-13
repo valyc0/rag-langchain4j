@@ -1,0 +1,56 @@
+curl -F "file=@Lavventura-di-Oliver.pdf" http://localhost:8092/api/documents/upload
+
+curl -F "file=@02 Inferno.pdf" http://localhost:8092/api/documents/upload
+
+
+##lista i doc
+curl http://localhost:8092/api/documents/list
+
+####Lavventura-di-Oliver.pdf
+curl -X POST http://localhost:8092/api/query \
+  -H "Content-Type: application/json" \
+  -d '{"question": "Come si chiama il gatto?"}'
+  
+  
+  curl -X POST http://localhost:8092/api/query \
+  -H "Content-Type: application/json" \
+  -d '{"question": "Cosa vide quando si avvicino ad una foglia?"}'
+  
+  
+    curl -X POST http://localhost:8092/api/query \
+  -H "Content-Type: application/json" \
+  -d '{"question": "Cosa rispose il bruco?"}'
+  
+curl -X POST http://localhost:8092/api/query \
+-H "Content-Type: application/json" \
+-d '{"question": "Cosa fa quando ape si avvicina?"}'
+
+
+curl -X POST http://localhost:8092/api/query \
+-H "Content-Type: application/json" \
+-d '{"question": "Cosa propone questo libro ai bambini?"}'
+
+curl -X POST http://localhost:8092/api/query \
+-H "Content-Type: application/json" \
+-d '{"question": "Chi altro si annoiava?"}'
+
+curl -X POST http://localhost:8092/api/query \
+-H "Content-Type: application/json" \
+-d '{"question": "cosa ha provato durante durante gli inverni?"}'
+
+curl -X POST http://localhost:8092/api/query \
+-H "Content-Type: application/json" \
+-d '{"question": "chi ha allungato le mani?"}'
+
+######## 02 Inferno.pdf
+curl -X POST http://localhost:8092/api/query \
+-H "Content-Type: application/json" \
+-d '{"question": "chi è il protagonista del poema?"}'
+
+curl -X POST http://localhost:8092/api/query \
+-H "Content-Type: application/json" \
+-d '{"question": "chi sono gli ignavi?"}'
+
+curl -X POST http://localhost:8092/api/query \
+-H "Content-Type: application/json" \
+-d '{"question": "chi mette tra gli ignavi?"}'

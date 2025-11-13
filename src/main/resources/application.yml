@@ -1,0 +1,69 @@
+server:
+  port: 8092
+
+spring:
+  application:
+    name: rag-system
+  servlet:
+    multipart:
+      enabled: true
+      max-file-size: 100MB
+      max-request-size: 100MB
+      file-size-threshold: 2MB
+
+# Configurazione Qdrant
+qdrant:
+  host: localhost
+  port: 6334
+  collection-name: documenti
+  use-tls: false
+
+# Configurazione RAG
+rag:
+  # Numero di chunks da recuperare per ogni query
+  # Valori consigliati:
+  #  5-10:  Veloce, buono per documenti semplici
+  #  10-20: Più contesto, meglio per domande complesse
+  #  20+:   Massimo contesto, ma più lento e più token usati
+  top-k: 15
+  
+  # Dimensione dei chunks per la suddivisione del testo
+  # Valori più bassi = match più precisi ma più chunks totali
+  # Valori più alti = meno chunks ma context più grande per chunk
+  chunk-size: 300
+  chunk-overlap: 50
+
+# Configurazione Google Gemini
+gemini:
+  # API KEY di Google AI Studio (https://aistudio.google.com/app/apikey)
+  api-key: ${GEMINI_API_KEY:your_api_key_here}
+  
+  # Se usi Vertex AI (GCP), configura questi:
+  project: ${GOOGLE_CLOUD_PROJECT:}
+  location: us-central1
+  
+  # Modello da usare
+  # Opzioni: gemini-2.0-flash-exp, gemini-1.5-flash, gemini-1.5-pro
+  model: gemini-2.5-flash
+  
+  # Parametri di generazione
+  # Temperature: controlla la creatività delle risposte
+  #   0.0-0.3: Deterministico, preciso, ideale per FAQ/documentazione
+  #   0.3-0.7: Bilanciato, buono per RAG generale
+  #   0.7-1.0: Creativo, può aggiungere dettagli non nel contesto
+  temperature: 0.3
+  
+  # Max tokens: lunghezza massima della risposta
+  #   512-1024:  Risposte brevi e concise
+  #   1024-2048: Risposte medie (consigliato per RAG)
+  #   2048-4096: Risposte lunghe e dettagliate
+  max-tokens: 1024
+
+# Logging
+logging:
+  level:
+    root: INFO
+    com.example.rag: DEBUG
+    dev.langchain4j: DEBUG
+  pattern:
+    console: "%d{HH:mm:ss.SSS} [%thread] %-5level %logger{36} - %msg%n"

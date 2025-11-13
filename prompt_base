@@ -1,0 +1,1764 @@
+Nuova chat
+sto sviluppando un software java con spring boot 3 in cui devo praticamente usare un RAG: devo effettuare un upload di file come pdf ,word Comunque generalmente testo o video e devo indicizzarlo in modo che un ai sia ingrado di trovare testo
+
+Perfetto! Ti aiuto a strutturare un sistema RAG (Retrieval-Augmented Generation) con Spring Boot 3. Ecco come procedere:
+
+Architettura Generale
+Il tuo sistema avrà bisogno di questi componenti:
+
+Estrazione del contenuto dai file (PDF, Word, video)
+Chunking del testo in pezzi gestibili
+Generazione di embeddings (vettori)
+Storage vettoriale per la ricerca semantica
+Retrieval per recuperare i chunk più rilevanti
+Integration con LLM per generare risposte
+Dipendenze Maven
+xml
+<dependencies>
+    <!-- Spring Boot -->
+    <dependency>
+        <groupId>org.springframework.boot</groupId>
+        <artifactId>spring-boot-starter-web</artifactId>
+    </dependency>
+    
+    <!-- Spring AI (per embeddings e LLM) -->
+    <dependency>
+        <groupId>org.springframework.ai</groupId>
+        <artifactId>spring-ai-openai-spring-boot-starter</artifactId>
+        <version>1.0.0-M3</version>
+    </dependency>
+    
+    <!-- Vector Store - Qdrant o Pinecone o PGVector -->
+    <dependency>
+        <groupId>org.springframework.ai</groupId>
+        <artifactId>spring-ai-pgvector-store-spring-boot-starter</artifactId>
+        <version>1.0.0-M3</version>
+    </dependency>
+    
+    <!-- Apache Tika per estrarre testo da PDF/Word -->
+    <dependency>
+        <groupId>org.apache.tika</groupId>
+        <artifactId>tika-core</artifactId>
+        <version>2.9.1</version>
+    </dependency>
+    <dependency>
+        <groupId>org.apache.tika</groupId>
+        <artifactId>tika-parsers-standard-package</artifactId>
+        <version>2.9.1</version>
+    </dependency>
+    
+    <!-- Per trascrizione video (Whisper via API o locale) -->
+    <dependency>
+        <groupId>org.springframework.boot</groupId>
+        <artifactId>spring-boot-starter-webflux</artifactId>
+    </dependency>
+</dependencies>
+```
+
+## Struttura del Progetto
+```
+src/main/java/com/example/rag/
+├── config/
+│   ├── AIConfiguration.java
+│   └── VectorStoreConfiguration.java
+├── controller/
+│   ├── DocumentController.java
+│   └── QueryController.java
+├── service/
+│   ├── DocumentProcessingService.java
+│   ├── EmbeddingService.java
+│   ├── VideoTranscriptionService.java
+│   └── RAGService.java
+├── repository/
+│   └── DocumentRepository.java
+└── model/
+    ├── Document.java
+    └── DocumentChunk.java
+Implementazione Base
+1. Configurazione AI
+
+java
+@Configuration
+public class AIConfiguration {
+    
+    @Bean
+    public OpenAiEmbeddingModel embeddingModel(
+            @Value("${spring.ai.openai.api-key}") String apiKey) {
+        return new OpenAiEmbeddingModel(apiKey);
+    }
+    
+    @Bean
+    public OpenAiChatModel chatModel(
+            @Value("${spring.ai.openai.api-key}") String apiKey) {
+        return new OpenAiChatModel(apiKey);
+    }
+}
+2. Service per Estrazione Contenuto
+
+java
+@Service
+public class DocumentProcessingService {
+    
+    private final Tika tika = new Tika();
+    
+    public String extractText(MultipartFile file) throws IOException {
+        try (InputStream stream = file.getInputStream()) {
+            return tika.parseToString(stream);
+        }
+    }
+    
+    public List<String> chunkText(String text, int chunkSize, int overlap) {
+        List<String> chunks = new ArrayList<>();
+        int start = 0;
+        
+        while (start < text.length()) {
+            int end = Math.min(start + chunkSize, text.length());
+            chunks.add(text.substring(start, end));
+            start += chunkSize - overlap;
+        }
+        
+        return chunks;
+    }
+}
+3. Controller per Upload
+
+java
+@RestController
+@RequestMapping("/api/documents")
+public class DocumentController {
+    
+    @Autowired
+    private DocumentProcessingService processingService;
+    
+    @Autowired
+    private VectorStore vectorStore;
+    
+    @PostMapping("/upload")
+    public ResponseEntity<String> uploadDocument(
+            @RequestParam("file") MultipartFile file) {
+        
+        try {
+            // Estrai testo
+            String text = processingService.extractText(file);
+            
+            // Dividi in chunks
+            List<String> chunks = processingService.chunkText(text, 1000, 200);
+            
+            // Crea documenti per vector store
+            List<Document> documents = chunks.stream()
+                .map(chunk -> new Document(chunk, 
+                    Map.of("filename", file.getOriginalFilename())))
+                .collect(Collectors.toList());
+            
+            // Salva nel vector store
+            vectorStore.add(documents);
+            
+            return ResponseEntity.ok("Document indexed successfully");
+            
+        } catch (Exception e) {
+            return ResponseEntity.status(500).body("Error: " + e.getMessage());
+        }
+    }
+}
+4. Service RAG per Query
+
+java
+@Service
+public class RAGService {
+    
+    @Autowired
+    private VectorStore vectorStore;
+    
+    @Autowired
+    private ChatModel chatModel;
+    
+    public String query(String question) {
+        // Cerca documenti simili
+        List<Document> similarDocs = vectorStore.similaritySearch(
+            SearchRequest.query(question).withTopK(5)
+        );
+        
+        // Costruisci il contesto
+        String context = similarDocs.stream()
+            .map(Document::getContent)
+            .collect(Collectors.joining("\n\n"));
+        
+        // Crea il prompt
+        String prompt = String.format(
+            "Basandoti sul seguente contesto, rispondi alla domanda.\n\n" +
+            "Contesto:\n%s\n\n" +
+            "Domanda: %s\n\n" +
+            "Risposta:",
+            context, question
+        );
+        
+        // Genera risposta
+        return chatModel.call(prompt);
+    }
+}
+Opzioni per Vector Store
+Opzione 1: PostgreSQL + pgvector (consigliato per iniziare)
+
+Usa il DB che probabilmente hai già
+Richiede estensione pgvector
+Opzione 2: Qdrant (open source, potente)
+
+Vector database dedicato
+Facilmente deployabile con Docker
+Opzione 3: Pinecone/Weaviate (managed services)
+
+Servizi cloud pronti all'uso
+Per i Video
+Per i video dovrai estrarre l'audio e trascriverlo:
+
+java
+@Service
+public class VideoTranscriptionService {
+    
+    @Value("${openai.api-key}")
+    private String apiKey;
+    
+    public String transcribeVideo(MultipartFile video) {
+        // 1. Estrai audio con FFmpeg
+        // 2. Usa Whisper API per trascrizione
+        
+        WebClient client = WebClient.create("https://api.openai.com");
+        
+        // Chiamata a Whisper API
+        // ... implementazione
+        
+        return transcription;
+    }
+}
+application.properties
+properties
+spring.ai.openai.api-key=${OPENAI_API_KEY}
+spring.ai.openai.embedding.model=text-embedding-3-small
+
+# Per pgvector
+spring.datasource.url=jdbc:postgresql://localhost:5432/ragdb
+spring.datasource.username=user
+spring.datasource.password=password
+spring.jpa.properties.hibernate.dialect=org.hibernate.dialect.PostgreSQLDialect
+Vuoi che ti mostri l'implementazione completa di una parte specifica? O hai già scelto quale vector database usare?
+
+esiste qualcosa di già pronto magari richiamabile da java con delle api
+
+Sì, esistono diverse soluzioni già pronte! Ecco le migliori opzioni:
+
+1. Spring AI (Consigliato - Nativo Spring)
+Spring AI è il framework ufficiale di Spring per l'AI, include già tutto:
+
+java
+// Dipendenze
+<dependency>
+    <groupId>org.springframework.ai</groupId>
+    <artifactId>spring-ai-pdf-document-reader</artifactId>
+</dependency>
+<dependency>
+    <groupId>org.springframework.ai</groupId>
+    <artifactId>spring-ai-tika-document-reader</artifactId>
+</dependency>
+
+// Esempio completo
+@Service
+public class RAGService {
+    
+    private final ChatClient chatClient;
+    private final VectorStore vectorStore;
+    
+    // Upload e indicizzazione automatica
+    public void indexDocument(Resource pdfResource) {
+        var pdfReader = new PagePdfDocumentReader(pdfResource,
+            PdfDocumentReaderConfig.builder()
+                .withPageExtractedTextFormatter(...)
+                .build());
+        
+        var textSplitter = new TokenTextSplitter();
+        
+        vectorStore.accept(
+            textSplitter.apply(pdfReader.get())
+        );
+    }
+    
+    // Query con RAG
+    public String ask(String question) {
+        return chatClient.prompt()
+            .user(question)
+            .advisors(new QuestionAnswerAdvisor(vectorStore))
+            .call()
+            .content();
+    }
+}
+2. LangChain4j (Molto Popolare)
+LangChain4j è il port Java di LangChain, molto maturo:
+
+xml
+<dependency>
+    <groupId>dev.langchain4j</groupId>
+    <artifactId>langchain4j-spring-boot-starter</artifactId>
+    <version>0.35.0</version>
+</dependency>
+<dependency>
+    <groupId>dev.langchain4j</groupId>
+    <artifactId>langchain4j-document-parser-apache-tika</artifactId>
+    <version>0.35.0</version>
+</dependency>
+<dependency>
+    <groupId>dev.langchain4j</groupId>
+    <artifactId>langchain4j-embeddings-all-minilm-l6-v2</artifactId>
+    <version>0.35.0</version>
+</dependency>
+java
+@Service
+public class DocumentService {
+    
+    private final EmbeddingStore<TextSegment> embeddingStore;
+    private final EmbeddingModel embeddingModel;
+    
+    // Carica e indicizza automaticamente
+    public void ingestDocument(String filePath) {
+        Document document = FileSystemDocumentLoader.loadDocument(filePath);
+        
+        DocumentSplitter splitter = DocumentSplitters.recursive(
+            300, 30, new OpenAiTokenizer()
+        );
+        
+        List<TextSegment> segments = splitter.split(document);
+        
+        List<Embedding> embeddings = embeddingModel.embedAll(segments)
+            .content();
+        
+        embeddingStore.addAll(embeddings, segments);
+    }
+    
+    // Query con RAG automatico
+    @Bean
+    public Assistant createAssistant() {
+        return AiServices.builder(Assistant.class)
+            .chatLanguageModel(chatModel)
+            .chatMemory(MessageWindowChatMemory.withMaxMessages(10))
+            .contentRetriever(EmbeddingStoreContentRetriever.from(embeddingStore))
+            .build();
+    }
+}
+
+interface Assistant {
+    String chat(String message);
+}
+3. Servizi Cloud Completamente Gestiti
+a) Azure AI Search + Document Intelligence
+java
+// Azure SDK
+<dependency>
+    <groupId>com.azure</groupId>
+    <artifactId>azure-search-documents</artifactId>
+</dependency>
+
+SearchClient searchClient = new SearchClientBuilder()
+    .endpoint("https://myservice.search.windows.net")
+    .credential(new AzureKeyCredential(apiKey))
+    .buildClient();
+
+// Upload documento - Azure fa tutto automaticamente
+searchClient.uploadDocuments(Arrays.asList(
+    new SearchDocument(Map.of(
+        "id", "1",
+        "content", extractedText,
+        "metadata", metadata
+    ))
+));
+
+// Query semantica
+SearchPagedIterable results = searchClient.search(
+    "la mia domanda",
+    new SearchOptions()
+        .setQueryType(QueryType.SEMANTIC)
+        .setSemanticConfigurationName("my-config")
+);
+b) AWS Bedrock Knowledge Bases
+java
+<dependency>
+    <groupId>software.amazon.awssdk</groupId>
+    <artifactId>bedrockagent</artifactId>
+</dependency>
+
+BedrockAgentClient client = BedrockAgentClient.create();
+
+// Upload a S3, Bedrock indicizza automaticamente
+// Query con RAG già configurato
+RetrieveAndGenerateResponse response = client.retrieveAndGenerate(
+    RetrieveAndGenerateRequest.builder()
+        .input(RetrieveAndGenerateInput.builder()
+            .text("Cosa dice il documento su...")
+            .build())
+        .retrieveAndGenerateConfiguration(...)
+        .build()
+);
+c) Google Vertex AI Search
+java
+<dependency>
+    <groupId>com.google.cloud</groupId>
+    <artifactId>google-cloud-discoveryengine</artifactId>
+</dependency>
+
+// Carica documenti
+// Google indicizza automaticamente PDF, Word, video
+DocumentServiceClient.create().importDocuments(...);
+
+// Query con RAG
+SearchServiceClient searchClient = SearchServiceClient.create();
+SearchResponse response = searchClient.search(
+    SearchRequest.newBuilder()
+        .setServingConfig("...")
+        .setQuery("la mia domanda")
+        .build()
+);
+4. Pinecone + LangChain4j (Soluzione Ibrida)
+java
+<dependency>
+    <groupId>dev.langchain4j</groupId>
+    <artifactId>langchain4j-pinecone</artifactId>
+</dependency>
+
+// Pinecone gestisce i vettori, tu solo le API
+PineconeEmbeddingStore embeddingStore = PineconeEmbeddingStore.builder()
+    .apiKey(System.getenv("PINECONE_API_KEY"))
+    .environment("us-east1-gcp")
+    .index("my-index")
+    .nameSpace("documents")
+    .build();
+
+// Poi usi LangChain4j normalmente
+5. Haystack (via REST API)
+Haystack ha un server REST che puoi chiamare da Java:
+
+bash
+# Avvia Haystack come servizio
+docker run -p 8000:8000 deepset/haystack-api
+java
+// Chiamate REST da Spring
+@Service
+public class HaystackService {
+    
+    private final RestTemplate restTemplate;
+    
+    public void uploadDocument(MultipartFile file) {
+        HttpHeaders headers = new HttpHeaders();
+        headers.setContentType(MediaType.MULTIPART_FORM_DATA);
+        
+        MultiValueMap<String, Object> body = new LinkedMultiValueMap<>();
+        body.add("files", file.getResource());
+        
+        restTemplate.postForEntity(
+            "http://localhost:8000/file-upload",
+            new HttpEntity<>(body, headers),
+            String.class
+        );
+    }
+    
+    public String query(String question) {
+        Map<String, Object> request = Map.of(
+            "query", question,
+            "params", Map.of("Retriever", Map.of("top_k", 5))
+        );
+        
+        return restTemplate.postForObject(
+            "http://localhost:8000/query",
+            request,
+            String.class
+        );
+    }
+}
+La Mia Raccomandazione
+Per un progetto Spring Boot, ti consiglio LangChain4j perché:
+
+✅ Documentazione eccellente in italiano/inglese
+✅ Supporta tutti i formati (PDF, Word, video via Whisper)
+✅ Integrazione nativa con Spring Boot
+✅ Supporta embedding locali (gratuiti) o cloud
+✅ Community attiva
+✅ Facile da configurare
+
+Setup Rapido LangChain4j
+java
+@Configuration
+public class LangChain4jConfig {
+    
+    @Bean
+    public ChatLanguageModel chatModel() {
+        return OpenAiChatModel.builder()
+            .apiKey(System.getenv("OPENAI_API_KEY"))
+            .modelName("gpt-4")
+            .build();
+    }
+    
+    @Bean
+    public EmbeddingModel embeddingModel() {
+        // Embedding LOCALE e GRATUITO!
+        return new AllMiniLmL6V2EmbeddingModel();
+    }
+    
+    @Bean
+    public EmbeddingStore<TextSegment> embeddingStore() {
+        // In-memory per sviluppo, poi passa a Pinecone/Qdrant
+        return new InMemoryEmbeddingStore<>();
+    }
+}
+Quale soluzione preferisci? Posso mostrarti un esempio completo funzionante!
+
+spiegami bene come funziona LangChain4j. considera che non so nulla spiegalo facile
+
+LangChain4j Spiegato Semplice 🚀
+Immagina di avere un assistente che deve rispondere a domande sui tuoi documenti. LangChain4j è come una catena di montaggio che fa tutto il lavoro per te.
+
+🎯 Il Problema che Risolve
+Scenario: Hai 1000 pagine di manuali PDF e vuoi chiedere "Come si ripara il motore?"
+
+Il problema:
+
+ChatGPT/Claude non hanno letto i tuoi PDF
+Non puoi copiare 1000 pagine nella chat (troppo lungo!)
+Devi trovare le parti rilevanti e darle all'AI
+LangChain4j fa tutto questo automaticamente!
+
+🔧 Come Funziona (Passo per Passo)
+FASE 1: CARICAMENTO DEI DOCUMENTI 📄
+java
+// Tu dai il file
+Document document = FileSystemDocumentLoader.loadDocument("manuale.pdf");
+```
+
+**Cosa succede:** LangChain4j legge il PDF e lo trasforma in testo puro.
+```
+Esempio output:
+"Il motore XYZ-2000 richiede manutenzione ogni 6 mesi.
+Per riparare il motore seguire questi passi: 1. Spegnere..."
+FASE 2: SPEZZETTAMENTO (Chunking) ✂️
+Il testo è troppo lungo! LangChain4j lo divide in pezzetti piccoli:
+
+java
+DocumentSplitter splitter = DocumentSplitters.recursive(
+    500,  // Massimo 500 caratteri per pezzo
+    50    // Sovrapponi 50 caratteri tra i pezzi
+);
+
+List<TextSegment> pezzi = splitter.split(document);
+```
+
+**Perché si divide?**
+- L'AI può processare solo testi brevi alla volta
+- È più facile trovare le informazioni rilevanti
+```
+Pezzo 1: "Il motore XYZ-2000 richiede manutenzione ogni 6 mesi..."
+Pezzo 2: "...ogni 6 mesi. Per riparare il motore seguire questi passi..."
+Pezzo 3: "...questi passi: 1. Spegnere la corrente. 2. Rimuovere..."
+FASE 3: TRASFORMAZIONE IN NUMERI (Embeddings) 🔢
+Ogni pezzo di testo diventa una lista di numeri (vettore):
+
+java
+EmbeddingModel embeddingModel = new AllMiniLmL6V2EmbeddingModel();
+List<Embedding> embeddings = embeddingModel.embedAll(pezzi).content();
+```
+
+**Perché numeri?**
+Perché il computer può **calcolare la somiglianza** tra testi usando la matematica!
+```
+"riparare motore"     → [0.2, 0.8, 0.1, 0.5, ...]
+"manutenzione auto"   → [0.3, 0.7, 0.2, 0.4, ...]  ← SIMILI!
+"ricetta carbonara"   → [0.9, 0.1, 0.8, 0.2, ...]  ← DIVERSI!
+Testi simili hanno numeri simili!
+
+FASE 4: SALVARE IN UN DATABASE SPECIALE 💾
+java
+EmbeddingStore<TextSegment> magazzino = new InMemoryEmbeddingStore<>();
+magazzino.addAll(embeddings, pezzi);
+Cos'è l'EmbeddingStore? È un database che salva:
+
+Il testo originale: "Il motore XYZ-2000..."
+I suoi numeri: [0.2, 0.8, 0.1, ...]
+Così può cercare velocemente testi simili.
+
+FASE 5: FARE DOMANDE 💬
+Quando fai una domanda, ecco cosa succede:
+
+java
+String domanda = "Come si ripara il motore?";
+```
+
+**Step 1:** La domanda diventa numeri
+```
+"Come si ripara il motore?" → [0.25, 0.75, 0.15, 0.45, ...]
+Step 2: LangChain4j cerca nel magazzino i pezzi più simili
+
+java
+List<EmbeddingMatch<TextSegment>> risultati = magazzino.findRelevant(
+    embedding_della_domanda, 
+    3  // Prendi i 3 pezzi più simili
+);
+```
+
+**Step 3:** Trova i pezzi rilevanti
+```
+Trovati:
+✅ "...Per riparare il motore seguire questi passi..."
+✅ "...Spegnere la corrente. Rimuovere il pannello..."
+✅ "...sostituire la cinghia ogni 2 anni..."
+Step 4: Crea un "prompt" per l'AI
+
+java
+String contesto = risultati.stream()
+    .map(match -> match.embedded().text())
+    .collect(Collectors.joining("\n"));
+
+String promptCompleto = """
+    Basandoti su queste informazioni:
+    %s
+    
+    Rispondi a: %s
+    """.formatted(contesto, domanda);
+Step 5: Chiede all'AI (ChatGPT/Claude)
+
+java
+String risposta = chatModel.generate(promptCompleto);
+L'AI risponde usando SOLO le informazioni che gli hai dato!
+
+🎁 Esempio Completo Funzionante
+java
+@Service
+public class DocumentAssistant {
+    
+    private final EmbeddingStore<TextSegment> magazzino;
+    private final EmbeddingModel embeddingModel;
+    private final ChatLanguageModel chatModel;
+    
+    public DocumentAssistant() {
+        // 1. Prepara gli strumenti
+        this.magazzino = new InMemoryEmbeddingStore<>();
+        this.embeddingModel = new AllMiniLmL6V2EmbeddingModel(); // GRATIS!
+        this.chatModel = OpenAiChatModel.builder()
+            .apiKey("tua-chiave-openai")
+            .build();
+    }
+    
+    // Carica un documento
+    public void caricaDocumento(String percorso) {
+        // 1. Leggi il file
+        Document doc = FileSystemDocumentLoader.loadDocument(percorso);
+        
+        // 2. Spezzetta
+        DocumentSplitter splitter = DocumentSplitters.recursive(500, 50);
+        List<TextSegment> pezzi = splitter.split(doc);
+        
+        // 3. Trasforma in numeri
+        List<Embedding> embeddings = embeddingModel.embedAll(pezzi).content();
+        
+        // 4. Salva nel magazzino
+        magazzino.addAll(embeddings, pezzi);
+        
+        System.out.println("✅ Documento caricato! " + pezzi.size() + " pezzi salvati");
+    }
+    
+    // Fai una domanda
+    public String chiedi(String domanda) {
+        // 1. Trasforma la domanda in numeri
+        Embedding embeddingDomanda = embeddingModel.embed(domanda).content();
+        
+        // 2. Cerca i pezzi più simili
+        List<EmbeddingMatch<TextSegment>> risultati = 
+            magazzino.findRelevant(embeddingDomanda, 3);
+        
+        // 3. Prendi il testo dei pezzi trovati
+        String contesto = risultati.stream()
+            .map(match -> match.embedded().text())
+            .collect(Collectors.joining("\n\n"));
+        
+        // 4. Crea il prompt
+        String prompt = String.format("""
+            Usa queste informazioni per rispondere:
+            
+            %s
+            
+            Domanda: %s
+            Risposta:
+            """, contesto, domanda);
+        
+        // 5. Chiedi all'AI
+        return chatModel.generate(prompt);
+    }
+}
+Come si usa:
+
+java
+public class Main {
+    public static void main(String[] args) {
+        DocumentAssistant assistant = new DocumentAssistant();
+        
+        // Carica i tuoi documenti
+        assistant.caricaDocumento("manuale_motore.pdf");
+        assistant.caricaDocumento("guida_manutenzione.pdf");
+        
+        // Fai domande!
+        String risposta1 = assistant.chiedi("Come si ripara il motore?");
+        System.out.println(risposta1);
+        
+        String risposta2 = assistant.chiedi("Ogni quanto la manutenzione?");
+        System.out.println(risposta2);
+    }
+}
+🆚 Senza vs Con LangChain4j
+❌ SENZA LangChain4j (Devi fare tutto tu)
+java
+// Leggere PDF manualmente
+PDFTextStripper stripper = new PDFTextStripper();
+String testo = stripper.getText(documento);
+
+// Spezzettare manualmente
+List<String> pezzi = new ArrayList<>();
+for (int i = 0; i < testo.length(); i += 500) {
+    pezzi.add(testo.substring(i, Math.min(i + 500, testo.length())));
+}
+
+// Chiamare API OpenAI per embeddings
+for (String pezzo : pezzi) {
+    HttpRequest request = HttpRequest.newBuilder()
+        .uri(URI.create("https://api.openai.com/v1/embeddings"))
+        .header("Authorization", "Bearer " + apiKey)
+        .POST(...)
+        .build();
+    // ... gestire la risposta, parsing JSON, errori...
+}
+
+// Salvare in un database
+// Implementare ricerca per similarità
+// Ecc ecc... TROPPO LAVORO!
+✅ CON LangChain4j (3 righe)
+java
+Document doc = FileSystemDocumentLoader.loadDocument("file.pdf");
+List<TextSegment> pezzi = splitter.split(doc);
+magazzino.addAll(embeddingModel.embedAll(pezzi).content(), pezzi);
+📦 Cosa Include LangChain4j
+Document Loaders - Legge PDF, Word, Excel, TXT, HTML
+Document Splitters - Divide intelligentemente i testi
+Embedding Models - Trasforma testo in numeri (anche offline/gratis!)
+Vector Stores - Database specializzati (in-memory, Pinecone, Chroma, etc)
+Chat Models - Si collega a OpenAI, Anthropic, Ollama, etc
+Chains - Combina tutto automaticamente
+🎓 Concetti Chiave da Ricordare
+Embedding = Trasformare testo in lista di numeri
+Vector Store = Database che cerca testi simili velocemente
+Chunking = Dividere documenti in pezzi piccoli
+RAG = Retrieval (cerca) + Augmented (aggiungi) + Generation (genera risposta)
+In pratica: Cerca le parti rilevanti e dalle all'AI per rispondere!
+
+Ora è più chiaro? Vuoi che ti mostri come integrarlo in un controller Spring Boot per fare upload di file?
+
+invece di InMemoryEmbeddingStore c'è qualcosa di gratis?
+
+Sì! Ci sono diverse alternative gratuite e persistenti (i dati non si perdono quando riavvii l'app):
+
+🎯 Opzioni Gratuite per l'EmbeddingStore
+1. Chroma (Consigliato - Facile e Potente) ⭐
+Chroma è un database vettoriale open source che gira in locale, completamente gratis.
+
+xml
+<dependency>
+    <groupId>dev.langchain4j</groupId>
+    <artifactId>langchain4j-chroma</artifactId>
+    <version>0.35.0</version>
+</dependency>
+java
+// Avvia Chroma con Docker (una volta sola)
+// docker run -p 8000:8000 chromadb/chroma
+
+@Configuration
+public class EmbeddingConfig {
+    
+    @Bean
+    public EmbeddingStore<TextSegment> embeddingStore() {
+        return ChromaEmbeddingStore.builder()
+            .baseUrl("http://localhost:8000")  // Dove gira Chroma
+            .collectionName("documenti")       // Nome della "tabella"
+            .build();
+    }
+}
+Pro:
+
+✅ Gratis e open source
+✅ I dati persistono (non si perdono)
+✅ Veloce e leggero
+✅ Facile da usare
+Setup veloce:
+
+bash
+docker run -d -p 8000:8000 chromadb/chroma
+2. Qdrant (Professionale e Gratis) 🚀
+Qdrant è un database vettoriale molto potente, usato in produzione da tante aziende.
+
+xml
+<dependency>
+    <groupId>dev.langchain4j</groupId>
+    <artifactId>langchain4j-qdrant</artifactId>
+    <version>0.35.0</version>
+</dependency>
+java
+@Bean
+public EmbeddingStore<TextSegment> embeddingStore() {
+    return QdrantEmbeddingStore.builder()
+        .host("localhost")
+        .port(6334)
+        .collectionName("documenti")
+        .build();
+}
+Setup con Docker:
+
+bash
+docker run -p 6333:6333 -p 6334:6334 \
+    -v $(pwd)/qdrant_storage:/qdrant/storage \
+    qdrant/qdrant
+Pro:
+
+✅ Gratis e open source
+✅ Molto veloce e scalabile
+✅ Interfaccia web per esplorare i dati
+✅ Può gestire milioni di documenti
+3. Milvus Lite (Embedded - Niente Docker!) 💪
+Milvus Lite è una versione "embedded" che gira dentro la tua applicazione Java, senza Docker!
+
+xml
+<dependency>
+    <groupId>dev.langchain4j</groupId>
+    <artifactId>langchain4j-milvus</artifactId>
+    <version>0.35.0</version>
+</dependency>
+java
+@Bean
+public EmbeddingStore<TextSegment> embeddingStore() {
+    return MilvusEmbeddingStore.builder()
+        .uri("milvus_data.db")  // File locale!
+        .collectionName("documenti")
+        .dimension(384)  // Dipende dal tuo embedding model
+        .build();
+}
+Pro:
+
+✅ Completamente gratis
+✅ Non serve Docker
+✅ Salva tutto in un file locale
+✅ Ottimo per sviluppo e piccoli progetti
+4. PostgreSQL + PGVector (Se hai già Postgres) 🐘
+Se usi già PostgreSQL, puoi aggiungere l'estensione pgvector gratuitamente!
+
+xml
+<dependency>
+    <groupId>dev.langchain4j</groupId>
+    <artifactId>langchain4j-pgvector</artifactId>
+    <version>0.35.0</version>
+</dependency>
+sql
+-- Abilita l'estensione (una volta sola)
+CREATE EXTENSION vector;
+java
+@Bean
+public EmbeddingStore<TextSegment> embeddingStore(DataSource dataSource) {
+    return PgVectorEmbeddingStore.builder()
+        .dataSource(dataSource)
+        .table("embeddings")
+        .dimension(384)
+        .build();
+}
+Pro:
+
+✅ Gratis
+✅ Usi il DB che già hai
+✅ Non serve installare altro
+✅ Integrazione perfetta con Spring
+Contro:
+
+❌ Più lento di database vettoriali specializzati
+❌ Non scala bene con milioni di vettori
+5. Elasticsearch (Se lo usi già) 🔍
+Se usi già Elasticsearch, dalla versione 8.0+ supporta vettori nativamente!
+
+xml
+<dependency>
+    <groupId>dev.langchain4j</groupId>
+    <artifactId>langchain4j-elasticsearch</artifactId>
+    <version>0.35.0</version>
+</dependency>
+java
+@Bean
+public EmbeddingStore<TextSegment> embeddingStore() {
+    return ElasticsearchEmbeddingStore.builder()
+        .serverUrl("http://localhost:9200")
+        .indexName("documenti")
+        .dimension(384)
+        .build();
+}
+🏆 LA MIA RACCOMANDAZIONE
+Per Iniziare: Chroma 🥇
+Perché?
+
+Setup in 2 minuti con Docker
+Documentazione ottima
+Interfaccia grafica per debug
+Perfetto per imparare
+Esempio Completo con Chroma
+java
+@Configuration
+public class LangChainConfig {
+    
+    @Bean
+    public EmbeddingModel embeddingModel() {
+        // Embedding model LOCALE e GRATUITO
+        return new AllMiniLmL6V2EmbeddingModel();
+    }
+    
+    @Bean
+    public EmbeddingStore<TextSegment> embeddingStore() {
+        return ChromaEmbeddingStore.builder()
+            .baseUrl("http://localhost:8000")
+            .collectionName("documenti_aziendali")
+            .build();
+    }
+    
+    @Bean
+    public ChatLanguageModel chatModel() {
+        return OpenAiChatModel.builder()
+            .apiKey(System.getenv("OPENAI_API_KEY"))
+            .modelName("gpt-4o-mini")  // Più economico!
+            .build();
+    }
+}
+java
+@Service
+public class DocumentService {
+    
+    private final EmbeddingStore<TextSegment> embeddingStore;
+    private final EmbeddingModel embeddingModel;
+    private final ChatLanguageModel chatModel;
+    
+    @Autowired
+    public DocumentService(
+            EmbeddingStore<TextSegment> embeddingStore,
+            EmbeddingModel embeddingModel,
+            ChatLanguageModel chatModel) {
+        this.embeddingStore = embeddingStore;
+        this.embeddingModel = embeddingModel;
+        this.chatModel = chatModel;
+    }
+    
+    public void caricaDocumento(MultipartFile file) throws IOException {
+        // 1. Salva temporaneamente il file
+        Path tempFile = Files.createTempFile("upload-", file.getOriginalFilename());
+        file.transferTo(tempFile);
+        
+        // 2. Carica il documento
+        Document doc = FileSystemDocumentLoader.loadDocument(tempFile.toString());
+        
+        // 3. Spezzetta
+        DocumentSplitter splitter = DocumentSplitters.recursive(
+            500,  // Caratteri per chunk
+            50    // Overlap
+        );
+        List<TextSegment> chunks = splitter.split(doc);
+        
+        // 4. Genera embeddings
+        List<Embedding> embeddings = embeddingModel.embedAll(chunks).content();
+        
+        // 5. Salva in Chroma - I DATI RESTANO SALVATI!
+        embeddingStore.addAll(embeddings, chunks);
+        
+        // 6. Pulisci file temporaneo
+        Files.delete(tempFile);
+    }
+    
+    public String chiedi(String domanda) {
+        // 1. Embedding della domanda
+        Embedding questionEmbedding = embeddingModel.embed(domanda).content();
+        
+        // 2. Cerca in Chroma i chunk rilevanti
+        List<EmbeddingMatch<TextSegment>> relevant = 
+            embeddingStore.findRelevant(questionEmbedding, 5);
+        
+        // 3. Estrai il testo
+        String context = relevant.stream()
+            .map(match -> match.embedded().text())
+            .collect(Collectors.joining("\n\n"));
+        
+        // 4. Crea prompt
+        String prompt = String.format("""
+            Basandoti su queste informazioni:
+            
+            %s
+            
+            Rispondi alla domanda: %s
+            """, context, domanda);
+        
+        // 5. Genera risposta
+        return chatModel.generate(prompt);
+    }
+}
+java
+@RestController
+@RequestMapping("/api/documents")
+public class DocumentController {
+    
+    @Autowired
+    private DocumentService documentService;
+    
+    @PostMapping("/upload")
+    public ResponseEntity<String> upload(@RequestParam("file") MultipartFile file) {
+        try {
+            documentService.caricaDocumento(file);
+            return ResponseEntity.ok("✅ Documento caricato!");
+        } catch (Exception e) {
+            return ResponseEntity.status(500).body("❌ Errore: " + e.getMessage());
+        }
+    }
+    
+    @GetMapping("/ask")
+    public ResponseEntity<String> ask(@RequestParam String question) {
+        String answer = documentService.chiedi(question);
+        return ResponseEntity.ok(answer);
+    }
+}
+🚀 Setup Completo (5 minuti)
+1. Avvia Chroma
+bash
+docker run -d -p 8000:8000 \
+    -v chroma-data:/chroma/chroma \
+    chromadb/chroma
+2. Aggiungi dipendenze
+xml
+<dependencies>
+    <!-- LangChain4j Core -->
+    <dependency>
+        <groupId>dev.langchain4j</groupId>
+        <artifactId>langchain4j</artifactId>
+        <version>0.35.0</version>
+    </dependency>
+    
+    <!-- Chroma Vector Store -->
+    <dependency>
+        <groupId>dev.langchain4j</groupId>
+        <artifactId>langchain4j-chroma</artifactId>
+        <version>0.35.0</version>
+    </dependency>
+    
+    <!-- Embedding Model Locale (GRATIS!) -->
+    <dependency>
+        <groupId>dev.langchain4j</groupId>
+        <artifactId>langchain4j-embeddings-all-minilm-l6-v2</artifactId>
+        <version>0.35.0</version>
+    </dependency>
+    
+    <!-- OpenAI per Chat -->
+    <dependency>
+        <groupId>dev.langchain4j</groupId>
+        <artifactId>langchain4j-open-ai</artifactId>
+        <version>0.35.0</version>
+    </dependency>
+    
+    <!-- Per leggere PDF -->
+    <dependency>
+        <groupId>dev.langchain4j</groupId>
+        <artifactId>langchain4j-document-parser-apache-tika</artifactId>
+        <version>0.35.0</version>
+    </dependency>
+</dependencies>
+3. Configura application.properties
+properties
+# Niente da configurare! Chroma gira standalone
+4. Testa!
+bash
+# Upload
+curl -F "file=@documento.pdf" http://localhost:8080/api/documents/upload
+
+# Domanda
+curl "http://localhost:8080/api/documents/ask?question=Cos%27%C3%A8%20questo%20documento?"
+💰 Confronto Costi
+Soluzione	Costo	Storage	Performance
+InMemory	Gratis	❌ Si perde	⚡⚡⚡ Velocissimo
+Chroma	Gratis	✅ Persistente	⚡⚡ Molto veloce
+Qdrant	Gratis	✅ Persistente	⚡⚡⚡ Velocissimo
+Milvus Lite	Gratis	✅ File locale	⚡⚡ Veloce
+PGVector	Gratis	✅ Postgres	⚡ Medio
+Pinecone	70$/mese	☁️ Cloud	⚡⚡⚡ Velocissimo
+Ti consiglio Chroma per iniziare! Vuoi che ti prepari un docker-compose completo con tutto configurato?
+
+fai un esempio completo con qdrant
+
+Esempio Completo con Qdrant 🚀
+Ti preparo un progetto Spring Boot completo e funzionante con Qdrant!
+
+📁 Struttura del Progetto
+rag-demo/
+├── docker-compose.yml
+├── pom.xml
+└── src/main/java/com/example/rag/
+    ├── RagApplication.java
+    ├── config/
+    │   └── LangChainConfig.java
+    ├── controller/
+    │   └── DocumentController.java
+    ├── service/
+    │   └── DocumentService.java
+    └── dto/
+        ├── UploadResponse.java
+        └── QuestionResponse.java
+1️⃣ Docker Compose (Qdrant + Interfaccia Web)
+docker-compose.yml
+Codice 
+2️⃣ pom.xml (Dipendenze Maven)
+pom.xml
+Codice 
+3️⃣ Configuration Class
+LangChainConfig.java
+Codice 
+4️⃣ Document Service (Logica Business)
+DocumentService.java
+Codice 
+5️⃣ REST Controller
+DocumentController.java
+Codice 
+6️⃣ Application Main Class
+RagApplication.java
+Codice 
+7️⃣ application.properties
+application.properties
+Codice 
+🚀 Come Avviare il Progetto
+Passo 1: Avvia Qdrant con Docker
+bash
+# Posizionati nella cartella del progetto
+cd rag-demo
+
+# Avvia Qdrant
+docker-compose up -d
+
+# Verifica che sia attivo
+docker ps
+
+# Dovresti vedere:
+# CONTAINER ID   IMAGE              STATUS         PORTS
+# xxxxx          qdrant/qdrant      Up 10 seconds  0.0.0.0:6333->6333/tcp, 0.0.0.0:6334->6334/tcp
+Passo 2: Configura OpenAI API Key
+bash
+# Linux/Mac
+export OPENAI_API_KEY=sk-your-api-key-here
+
+# Windows CMD
+set OPENAI_API_KEY=sk-your-api-key-here
+
+# Windows PowerShell
+$env:OPENAI_API_KEY="sk-your-api-key-here"
+Non hai OpenAI? Nessun problema! Usa Ollama locale (gratis):
+
+java
+// In LangChainConfig.java, sostituisci il bean chatModel() con:
+@Bean
+public ChatLanguageModel chatModel() {
+    return OllamaChatModel.builder()
+        .baseUrl("http://localhost:11434")
+        .modelName("llama2")
+        .build();
+}
+
+// E aggiungi la dipendenza:
+// <dependency>
+//     <groupId>dev.langchain4j</groupId>
+//     <artifactId>langchain4j-ollama</artifactId>
+//     <version>0.35.0</version>
+// </dependency>
+
+// Poi avvia Ollama:
+// docker run -d -p 11434:11434 ollama/ollama
+// docker exec -it <container-id> ollama pull llama2
+Passo 3: Compila ed Esegui
+bash
+# Compila con Maven
+mvn clean package
+
+# Avvia l'applicazione
+mvn spring-boot:run
+
+# Oppure con il JAR compilato
+java -jar target/rag-demo-1.0.0.jar
+🧪 Test dell'Applicazione
+1. Health Check
+bash
+curl http://localhost:8080/api/documents/health
+Risposta:
+
+json
+{
+  "status": "UP",
+  "service": "RAG API",
+  "qdrant": "connected"
+}
+2. Upload di un Documento
+bash
+# Crea un file di test
+echo "Il gatto è un animale domestico. I gatti amano dormire e giocare." > test.txt
+
+# Upload
+curl -F "file=@test.txt" http://localhost:8080/api/documents/upload
+Risposta:
+
+json
+{
+  "message": "✅ Documento caricato e indicizzato con successo!",
+  "data": {
+    "filename": "test.txt",
+    "size_bytes": 75,
+    "chunks_created": 1,
+    "status": "success"
+  }
+}
+3. Fai una Domanda
+bash
+curl "http://localhost:8080/api/documents/ask?question=Cosa+fanno+i+gatti?"
+Risposta:
+
+json
+{
+  "answer": "Secondo le informazioni fornite, i gatti amano dormire e giocare.",
+  "sources": [
+    {
+      "text": "Il gatto è un animale domestico. I gatti amano dormire e giocare.",
+      "score": 0.85,
+      "filename": "test.txt"
+    }
+  ],
+  "question": "Cosa fanno i gatti?"
+}
+4. Upload PDF Reale
+bash
+curl -F "file=@documento.pdf" http://localhost:8080/api/documents/upload
+5. Domanda Complessa
+bash
+curl -X POST http://localhost:8080/api/documents/ask \
+  -H "Content-Type: application/json" \
+  -d '{"question": "Riassumi i punti principali del documento"}'
+```
+
+---
+
+## 🌐 Interfaccia Web di Qdrant
+
+Apri il browser su:
+```
+http://localhost:6333/dashboard
+Qui puoi:
+
+✅ Vedere tutte le collezioni
+✅ Esplorare i vettori salvati
+✅ Fare ricerche manuali
+✅ Vedere le statistiche
+📊 Struttura Dati in Qdrant
+Ogni documento viene salvato così:
+
+json
+{
+  "id": "uuid-generato-automaticamente",
+  "vector": [0.123, 0.456, 0.789, ...],  // 384 dimensioni
+  "payload": {
+    "text": "Il testo del chunk...",
+    "filename": "documento.pdf",
+    "upload_timestamp": 1699564800000
+  }
+}
+```
+
+---
+
+## 🎯 Workflow Completo
+```
+┌─────────────┐
+│   Upload    │
+│  PDF/Word   │
+└──────┬──────┘
+       │
+       ▼
+┌─────────────────┐
+│ Apache Tika     │  ← Estrae il testo
+│ (Document       │
+│  Parser)        │
+└──────┬──────────┘
+       │
+       ▼
+┌─────────────────┐
+│  Text Splitter  │  ← Divide in chunks (500 caratteri)
+└──────┬──────────┘
+       │
+       ▼
+┌─────────────────┐
+│ AllMiniLmL6V2   │  ← Genera embeddings (vettori)
+│ (Embedding      │     LOCALE - niente API!
+│  Model)         │
+└──────┬──────────┘
+       │
+       ▼
+┌─────────────────┐
+│    Qdrant       │  ← Salva vettori + testo
+│  (Vector DB)    │
+└─────────────────┘
+
+
+Query Flow:
+───────────
+
+┌─────────────┐
+│  Domanda    │
+└──────┬──────┘
+       │
+       ▼
+┌─────────────────┐
+│ Embedding       │  ← Trasforma domanda in vettore
+│ Model           │
+└──────┬──────────┘
+       │
+       ▼
+┌─────────────────┐
+│ Qdrant Search   │  ← Cerca vettori simili
+│ (Top 5)         │
+└──────┬──────────┘
+       │
+       ▼
+┌─────────────────┐
+│ Build Prompt    │  ← Combina chunks + domanda
+└──────┬──────────┘
+       │
+       ▼
+┌─────────────────┐
+│ OpenAI GPT      │  ← Genera risposta
+└──────┬──────────┘
+       │
+       ▼
+┌─────────────────┐
+│   Risposta +    │
+│    Sources      │
+└─────────────────┘
+🔧 Troubleshooting
+Problema: Qdrant non si connette
+bash
+# Verifica che Qdrant sia attivo
+docker ps
+
+# Guarda i log
+docker logs qdrant
+
+# Riavvia
+docker-compose restart
+Problema: OpenAI API Key non valida
+bash
+# Verifica la variabile d'ambiente
+echo $OPENAI_API_KEY
+
+# Usa Ollama invece (gratis)
+docker run -d -p 11434:11434 ollama/ollama
+Problema: File troppo grande
+Modifica application.properties:
+
+properties
+spring.servlet.multipart.max-file-size=100MB
+spring.servlet.multipart.max-request-size=100MB
+🎉 Funzionalità Aggiuntive
+Puoi estendere facilmente:
+
+1. Supporto Video (con Whisper)
+java
+// Aggiungi trascrizione audio
+@Service
+public class VideoService {
+    public String transcribeVideo(MultipartFile video) {
+        // Usa FFmpeg per estrarre audio
+        // Poi Whisper API per trascrizione
+    }
+}
+2. Conversational Memory
+java
+// Aggiungi memoria conversazione
+@Bean
+public ChatMemory chatMemory() {
+    return MessageWindowChatMemory.withMaxMessages(10);
+}
+3. Multiple Collections
+java
+// Crea collezioni separate per tipo documento
+embeddingStore = QdrantEmbeddingStore.builder()
+    .collectionName("contratti")  // o "manuali", "report", ecc.
+    .build();
+Questo è un progetto completo e funzionante!
+
+Prova ad avviarlo e fammi sapere se hai domande o problemi! 🚀
+
+in quale fase trascrive?
+
+Ottima domanda! Al momento NON trascrive i video - il codice che ti ho mostrato gestisce solo documenti di testo (PDF, Word, Excel, TXT, ecc.).
+
+📹 Dove Andrebbe la Trascrizione Video
+La trascrizione video dovrebbe avvenire tra la FASE 1 e la FASE 2, precisamente qui:
+
+FASE 1: Caricamento File
+         ↓
+    [QUI!] ← Se è un video, trascrivilo prima
+         ↓
+FASE 2: Chunking (divisione in pezzi)
+         ↓
+FASE 3: Embedding
+         ↓
+FASE 4: Salvataggio in Qdrant
+🎬 Implementazione Completa con Supporto Video
+Ti mostro come aggiungere il supporto video con Whisper di OpenAI:
+
+VideoTranscriptionService.java
+Codice 
+Ora aggiorniamo il DocumentService per usare la trascrizione:
+
+DocumentService.java
+Codice ∙ Versione 2 
+Perfetto! Ora aggiungiamo le dipendenze necessarie al pom.xml:
+
+pom.xml
+Codice ∙ Versione 2 
+Ora creiamo un file di esempio per testare e aggiorniamo il README:
+
+README - Supporto Video.md
+Documento 
+Perfetto! Ora un esempio di test completo:
+
+test-video.sh
+Codice 
+📊 Riepilogo: Dove Avviene la Trascrizione
+java
+┌─────────────────────────────────────────────────────────┐
+│  DocumentService.uploadDocument(MultipartFile file)    │
+└─────────────────────────────────────────────────────────┘
+                          │
+                          ▼
+        ┌─────────────────────────────────┐
+        │ file.transferTo(tempFile)       │ ← Salva temporaneamente
+        └─────────────────────────────────┘
+                          │
+                          ▼
+        ┌─────────────────────────────────┐
+        │ videoService.isVideoOrAudio()?  │ ← Controlla tipo file
+        └─────────────────────────────────┘
+                          │
+            ┌─────────────┴─────────────┐
+            │ SÌ                        │ NO
+            ▼                           ▼
+┌──────────────────────────┐  ┌──────────────────────────┐
+│ 🎬 TRASCRIZIONE VIDEO    │  │ 📄 Apache Tika           │
+│                          │  │    (PDF, Word, ecc.)     │
+│ 1. extractAudio(FFmpeg)  │  │                          │
+│    └─> audio.mp3         │  └──────────────────────────┘
+│                          │              │
+│ 2. transcribeWithWhisper │              │
+│    └─> "Testo..."        │              │
+└──────────────────────────┘              │
+            │                             │
+            └─────────────┬───────────────┘
+                          ▼
+            ┌─────────────────────────────┐
+            │ document = Document.from()  │ ← Hai il testo!
+            └─────────────────────────────┘
+                          │
+                          ▼
+            ┌─────────────────────────────┐
+            │ splitter.split(document)    │ ← Chunking
+            └─────────────────────────────┘
+                          │
+                          ▼
+            ┌─────────────────────────────┐
+            │ embeddingModel.embedAll()   │ ← Embeddings
+            └─────────────────────────────┘
+                          │
+                          ▼
+            ┌─────────────────────────────┐
+            │ embeddingStore.addAll()     │ ← Salva in Qdrant
+            └─────────────────────────────┘
+🎯 Punti Chiave
+La trascrizione avviene PRIMA del chunking - altrimenti non avresti testo da dividere!
+Due percorsi paralleli:
+Video/Audio → FFmpeg → Whisper → Testo
+Documenti → Apache Tika → Testo
+Dopo la trascrizione, il flusso è identico per tutti i tipi di file (chunking → embeddings → Qdrant)
+Costi: Solo la chiamata a Whisper costa ($0.006/minuto), tutto il resto è gratis!
+🚀 Come Testare
+bash
+# 1. Avvia tutto
+docker-compose up -d
+mvn spring-boot:run
+
+# 2. Crea un video di test (registra 30 secondi di schermo con audio)
+# Oppure scarica un video pubblico
+
+# 3. Upload
+curl -F "file=@video.mp4" http://localhost:8080/api/documents/upload
+
+# Vedrai nei log:
+# 🎬 File video/audio rilevato - inizio trascrizione...
+# 📹 File video rilevato, estrazione audio...
+# 🔧 Esecuzione FFmpeg...
+# ✅ Audio estratto: 1234567 bytes
+# 🎤 Chiamata Whisper API...
+# ✅ Whisper completato
+# ✅ Trascrizione completata: 5432 caratteri
+Hai bisogno di altre spiegazioni o vuoi vedere un esempio pratico con un video reale? 🎬
+
+chatClient quali llm supporta?
+
+Ottima domanda! ChatClient (parte di Spring AI) e ChatLanguageModel (di LangChain4j) supportano molti LLM. Ti spiego entrambi:
+
+🤖 LLM Supportati da LangChain4j (quello che stiamo usando)
+LangChain4j supporta tantissimi provider tramite ChatLanguageModel:
+
+1. OpenAI (GPT-3.5, GPT-4, GPT-4o)
+xml
+<dependency>
+    <groupId>dev.langchain4j</groupId>
+    <artifactId>langchain4j-open-ai</artifactId>
+</dependency>
+java
+ChatLanguageModel model = OpenAiChatModel.builder()
+    .apiKey(System.getenv("OPENAI_API_KEY"))
+    .modelName("gpt-4o-mini")  // o gpt-4, gpt-3.5-turbo
+    .temperature(0.7)
+    .build();
+Modelli disponibili:
+
+gpt-4o - Più veloce e economico
+gpt-4o-mini - Ancora più economico
+gpt-4-turbo - Alta capacità
+gpt-4 - Modello premium
+gpt-3.5-turbo - Economico per task semplici
+2. Anthropic Claude (Claude 3.5 Sonnet, Opus, Haiku)
+xml
+<dependency>
+    <groupId>dev.langchain4j</groupId>
+    <artifactId>langchain4j-anthropic</artifactId>
+</dependency>
+java
+ChatLanguageModel model = AnthropicChatModel.builder()
+    .apiKey(System.getenv("ANTHROPIC_API_KEY"))
+    .modelName("claude-3-5-sonnet-20241022")  // o claude-3-opus, claude-3-haiku
+    .temperature(0.7)
+    .build();
+Modelli disponibili:
+
+claude-3-5-sonnet-20241022 - Ultimo modello, molto capace
+claude-3-opus-20240229 - Più potente
+claude-3-sonnet-20240229 - Bilanciato
+claude-3-haiku-20240307 - Veloce ed economico
+3. Google Gemini (Gemini Pro, Ultra)
+xml
+<dependency>
+    <groupId>dev.langchain4j</groupId>
+    <artifactId>langchain4j-vertex-ai-gemini</artifactId>
+</dependency>
+java
+ChatLanguageModel model = VertexAiGeminiChatModel.builder()
+    .project("your-gcp-project")
+    .location("us-central1")
+    .modelName("gemini-1.5-pro")
+    .build();
+Modelli disponibili:
+
+gemini-1.5-pro - Modello avanzato
+gemini-1.5-flash - Veloce
+gemini-pro - Standard
+4. Ollama (Locale, GRATIS!) ⭐
+xml
+<dependency>
+    <groupId>dev.langchain4j</groupId>
+    <artifactId>langchain4j-ollama</artifactId>
+</dependency>
+java
+ChatLanguageModel model = OllamaChatModel.builder()
+    .baseUrl("http://localhost:11434")
+    .modelName("llama3.2")  // o mistral, codellama, ecc.
+    .temperature(0.7)
+    .build();
+Modelli disponibili (oltre 100!):
+
+llama3.2 - Meta LLaMA 3.2 (ottimo!)
+llama3.1 - Meta LLaMA 3.1
+mistral - Mistral 7B
+mixtral - Mixtral 8x7B (molto capace)
+codellama - Specializzato per codice
+phi3 - Microsoft Phi-3 (piccolo ma potente)
+gemma2 - Google Gemma 2
+deepseek-coder - Ottimo per programmazione
+qwen2 - Alibaba Qwen 2
+Setup Ollama:
+
+bash
+# Con Docker
+docker run -d -p 11434:11434 ollama/ollama
+
+# Download modello
+docker exec -it <container-id> ollama pull llama3.2
+
+# Oppure installa localmente
+curl -fsSL https://ollama.ai/install.sh | sh
+ollama pull llama3.2
+5. Azure OpenAI
+xml
+<dependency>
+    <groupId>dev.langchain4j</groupId>
+    <artifactId>langchain4j-azure-open-ai</artifactId>
+</dependency>
+java
+ChatLanguageModel model = AzureOpenAiChatModel.builder()
+    .endpoint("https://your-resource.openai.azure.com/")
+    .apiKey(System.getenv("AZURE_OPENAI_KEY"))
+    .deploymentName("gpt-4")
+    .build();
+6. AWS Bedrock (Claude, LLaMA, Titan, ecc.)
+xml
+<dependency>
+    <groupId>dev.langchain4j</groupId>
+    <artifactId>langchain4j-bedrock</artifactId>
+</dependency>
+java
+ChatLanguageModel model = BedrockChatModel.builder()
+    .model("anthropic.claude-3-sonnet")
+    .region("us-east-1")
+    .build();
+Modelli disponibili su Bedrock:
+
+Claude (Anthropic)
+LLaMA (Meta)
+Titan (Amazon)
+Jurassic (AI21)
+Mistral
+7. Hugging Face (Qualsiasi modello!)
+xml
+<dependency>
+    <groupId>dev.langchain4j</groupId>
+    <artifactId>langchain4j-hugging-face</artifactId>
+</dependency>
+java
+ChatLanguageModel model = HuggingFaceChatModel.builder()
+    .accessToken(System.getenv("HF_API_KEY"))
+    .modelId("mistralai/Mistral-7B-Instruct-v0.1")
+    .build();
+8. Cohere (Command, Generate)
+xml
+<dependency>
+    <groupId>dev.langchain4j</groupId>
+    <artifactId>langchain4j-cohere</artifactId>
+</dependency>
+java
+ChatLanguageModel model = CohereChatModel.builder()
+    .apiKey(System.getenv("COHERE_API_KEY"))
+    .modelName("command")
+    .build();
+9. LocalAI (Self-hosted, gratis)
+java
+ChatLanguageModel model = OpenAiChatModel.builder()
+    .baseUrl("http://localhost:8080")  // LocalAI usa API compatibile OpenAI
+    .apiKey("not-needed")
+    .modelName("gpt-3.5-turbo")  // Nome qualsiasi
+    .build();
+10. Groq (LLaMA ultra-veloce!)
+xml
+<dependency>
+    <groupId>dev.langchain4j</groupId>
+    <artifactId>langchain4j-open-ai</artifactId>
+</dependency>
+java
+ChatLanguageModel model = OpenAiChatModel.builder()
+    .baseUrl("https://api.groq.com/openai/v1")
+    .apiKey(System.getenv("GROQ_API_KEY"))
+    .modelName("llama-3.1-70b-versatile")
+    .build();
+Modelli Groq:
+
+llama-3.1-70b-versatile - LLaMA 3.1 70B
+llama-3.1-8b-instant - LLaMA 3.1 8B (velocissimo!)
+mixtral-8x7b-32768 - Mixtral
+🎯 Configurazione Multi-LLM nel tuo progetto
+Puoi creare una configurazione che supporta tutti:
+
+MultiLLMConfiguration.java
+Codice 
+Ora aggiorniamo application.properties per supportare tutti i provider:
+
+application.properties
+Codice ∙ Versione 2 
+Ora creiamo un docker-compose aggiornato con Ollama incluso:
+
+docker-compose.yml
+Codice ∙ Versione 2 
+Perfetto! Ora aggiorniamo il LangChainConfig.java per usare la nuova configurazione multi-LLM:
+
+LangChainConfig.java
+Codice ∙ Versione 2 
+Aggiungiamo le dipendenze mancanti al pom.xml:
+
+pom.xml
+Codice ∙ Versione 3 
+Ora creiamo una guida rapida per usare tutti i provider:
+
+Guida LLM.md
+Documento 
+📋 Riepilogo: LLM Supportati
+LangChain4j supporta tantissimi LLM! Ecco la lista completa:
+
+✅ Già Configurati nel Progetto:
+OpenAI (GPT-4, GPT-4o, GPT-3.5)
+Anthropic Claude (Claude 3.5 Sonnet, Opus, Haiku)
+Ollama (LLaMA, Mistral, Mixtral, CodeLlama, Phi, Gemma, ecc.) - GRATIS!
+Groq (LLaMA ultra-veloce) - GRATIS in beta!
+🔧 Facilmente Aggiungibili:
+Azure OpenAI
+Google Vertex AI (Gemini)
+AWS Bedrock (Claude, LLaMA, Titan)
+Hugging Face (qualsiasi modello)
+Cohere
+LocalAI (self-hosted)
+Mistral AI
+AI21 Labs
+🎯 La Mia Raccomandazione:
+Per Iniziare (GRATIS):
+properties
+llm.provider=ollama
+llm.model-name=llama3.2
+Perché?
+
+✅ Completamente gratis
+✅ Nessuna API key
+✅ Privacy totale (tutto locale)
+✅ Ottima qualità per la maggior parte dei casi
+Per Produzione (Qualità):
+properties
+llm.provider=openai
+llm.model-name=gpt-4o-mini
+Perché?
+
+✅ Economico ($0.15/1M tokens)
+✅ Veloce e affidabile
+✅ Ottima qualità
+🚀 Comandi Rapidi
+bash
+# Setup completo in 3 comandi
+docker-compose up -d
+docker exec -it ollama ollama pull llama3.2
+mvn spring-boot:run
+
+# Test
+curl "http://localhost:8080/api/documents/ask?question=Ciao"
+Vuoi che ti mostri come implementare un sistema di fallback automatico (prova OpenAI, se fallisce usa Ollama)? 😊
+
+
+
+
+
+
+
+
+
