@@ -40,6 +40,10 @@ curl -X POST http://localhost:8092/api/query \
 
 curl -X POST http://localhost:8092/api/query \
 -H "Content-Type: application/json" \
+-d '{"question": "quale pesce aiutò?"}'
+
+curl -X POST http://localhost:8092/api/query \
+-H "Content-Type: application/json" \
 -d '{"question": "chi ha allungato le mani?"}'
 
 ######## 02 Inferno.pdf
@@ -54,3 +58,8 @@ curl -X POST http://localhost:8092/api/query \
 curl -X POST http://localhost:8092/api/query \
 -H "Content-Type: application/json" \
 -d '{"question": "chi mette tra gli ignavi?"}'
+
+curl -X POST http://localhost:8092/api/query \
+-H "Content-Type: application/json" \
+-d '{"question": "Dante verso chi dimostra un disprezzo radicale?"}'
+
