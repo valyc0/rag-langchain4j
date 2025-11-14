@@ -46,10 +46,12 @@ public class FileProcessorBean {
             // Processa il documento
             Map<String, Object> result = documentProcessingService.processDocument(multipartFile);
             
-            log.info("✅ File processato con successo: {}", filename);
-            log.info("📊 Statistiche: chunks={}, embedding_dim={}", 
-                    result.get("chunks_created"), 
-                    result.get("embedding_dimension"));
+            log.warn("✅ ========================================");
+            log.warn("✅ FILE CARICATO SU QDRANT: {}", filename);
+            log.warn("✅ Documento pronto per la ricerca!");
+            log.warn("✅ Chunks creati: {}", result.get("chunks_created"));
+            log.warn("✅ Dimensione embedding: {}", result.get("embedding_dimension"));
+            log.warn("✅ ========================================");
             
             // Aggiungi il risultato all'exchange per eventuali usi successivi
             exchange.getIn().setHeader("ProcessingResult", result);

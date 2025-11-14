@@ -44,6 +44,9 @@ public class DocumentProcessingService {
     @Value("${rag.chunk-overlap:50}")
     private int chunkOverlap; // Overlap tra chunks (configurabile)
     
+    @Value("${rag.batch-size:50}")
+    private int batchSize; // Numero di chunks da processare per batch
+    
     public DocumentProcessingService(
             EmbeddingStore<TextSegment> embeddingStore,
             EmbeddingModel embeddingModel) {
@@ -69,14 +72,43 @@ public class DocumentProcessingService {
             List<TextSegment> chunks = splitIntoChunks(text, file.getOriginalFilename());
             log.info("✂️ Documento diviso in {} chunks", chunks.size());
             
-            // 4. Genera embeddings
-            List<Embedding> embeddings = generateEmbeddings(chunks);
-            log.info("🔢 Embeddings generati: {} vettori di {} dimensioni", 
-                    embeddings.size(), embeddings.get(0).dimension());
+            // 4. Genera embeddings e salva a BATCH (ottimizzato per file grandi)
+            int totalChunks = chunks.size();
+            int embeddingDimension = 0;
             
-            // 5. Salva in Qdrant
-            embeddingStore.addAll(embeddings, chunks);
-            log.info("💾 Salvato in Qdrant!");
+            log.info("🔄 Inizio processamento a batch di '{}' (batch size: {})", 
+                     file.getOriginalFilename(), batchSize);
+            
+            for (int i = 0; i < totalChunks; i += batchSize) {
+                int endIndex = Math.min(i + batchSize, totalChunks);
+                List<TextSegment> batch = chunks.subList(i, endIndex);
+                
+                log.info("📦 [{}] Processamento batch {}/{}: chunks {}-{}", 
+                         file.getOriginalFilename(),
+                         (i / batchSize) + 1, 
+                         (totalChunks + batchSize - 1) / batchSize,
+                         i, 
+                         endIndex - 1);
+                
+                // Genera embeddings per questo batch
+                List<Embedding> batchEmbeddings = embeddingModel.embedAll(batch).content();
+                
+                if (i == 0) {
+                    embeddingDimension = batchEmbeddings.get(0).dimension();
+                }
+                
+                // Salva questo batch in Qdrant
+                embeddingStore.addAll(batchEmbeddings, batch);
+                
+                log.info("✅ [{}] Batch {}/{} salvato: {} chunks", 
+                         file.getOriginalFilename(),
+                         (i / batchSize) + 1,
+                         (totalChunks + batchSize - 1) / batchSize,
+                         batch.size());
+            }
+            
+            log.info("💾 [{}] Tutti i chunks salvati in Qdrant (processati a batch)!",
+                     file.getOriginalFilename());
             
             // 6. Ritorna statistiche
             return Map.of(
@@ -84,7 +116,9 @@ public class DocumentProcessingService {
                 "size_bytes", file.getSize(),
                 "text_length", text.length(),
                 "chunks_created", chunks.size(),
-                "embedding_dimension", embeddings.get(0).dimension(),
+                "embedding_dimension", embeddingDimension,
+                "batches_processed", (totalChunks + batchSize - 1) / batchSize,
+                "batch_size", batchSize,
                 "status", "success"
             );
             

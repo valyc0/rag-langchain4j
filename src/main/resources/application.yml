@@ -32,6 +32,13 @@ rag:
   # Valori più alti = meno chunks ma context più grande per chunk
   chunk-size: 300
   chunk-overlap: 50
+  
+  # Dimensione batch per processamento file grandi
+  # Chunks processati contemporaneamente (embedding + salvataggio Qdrant)
+  # Valori più bassi = meno memoria usata, più lento
+  # Valori più alti = più veloce ma usa più memoria
+  # Consigliato: 50-100 per file grandi, 200+ per file piccoli
+  batch-size: 50
 
 # Configurazione File Polling con Apache Camel
 file-polling:
