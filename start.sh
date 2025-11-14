@@ -34,8 +34,21 @@ echo ""
 
 # Chiedi la chiave API se non è già impostata
 if [ -z "$GEMINI_API_KEY" ]; then
-    read -p "🔑 Inserisci la tua Gemini API Key: " GEMINI_API_KEY
+    echo "ℹ️  La GEMINI_API_KEY non è impostata."
+    echo "   Puoi ottenerla da: https://aistudio.google.com/app/apikey"
+    echo ""
+    echo "   Per impostarla permanentemente, aggiungi al tuo ~/.bashrc o ~/.zshrc:"
+    echo "   export GEMINI_API_KEY=\"your_api_key_here\""
+    echo ""
+    read -p "🔑 Inserisci la tua Gemini API Key (o premi Ctrl+C per annullare): " GEMINI_API_KEY
+    
+    if [ -z "$GEMINI_API_KEY" ]; then
+        echo "❌ API Key non inserita. Uscita."
+        exit 1
+    fi
+    
     export GEMINI_API_KEY
+    echo "✅ API Key impostata per questa sessione."
 fi
 
 echo ""

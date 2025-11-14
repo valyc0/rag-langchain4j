@@ -33,6 +33,35 @@ rag:
   chunk-size: 300
   chunk-overlap: 50
 
+# Configurazione File Polling con Apache Camel
+file-polling:
+  # Abilita/disabilita il polling automatico
+  enabled: true
+  
+  # Directory da monitorare per nuovi file
+  # Usa path assoluto o relativo alla working directory
+  input-directory: rag-input
+  
+  # Directory dove spostare i file processati (opzionale)
+  # Se non specificato, i file rimangono nella stessa directory
+  processed-directory: rag-processed
+  
+  # Directory per i file che hanno dato errore
+  error-directory: rag-errors
+  
+  # Pattern dei file da processare (regex Java)
+  # Default: tutti i file PDF, DOC, DOCX, XLS, XLSX, PPT, PPTX, TXT
+  file-pattern: .*\\.(pdf|doc|docx|xls|xlsx|ppt|pptx|txt|html|xml)$
+  
+  # Frequenza di polling in millisecondi (default: 5000ms = 5 secondi)
+  delay: 5000
+  
+  # Processa anche file già esistenti all'avvio? (true/false)
+  initial-delay: 1000
+  
+  # Numero di file da processare in parallelo
+  max-concurrent: 3
+
 # Configurazione Google Gemini
 gemini:
   # API KEY di Google AI Studio (https://aistudio.google.com/app/apikey)

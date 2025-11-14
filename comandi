@@ -63,3 +63,14 @@ curl -X POST http://localhost:8092/api/query \
 -H "Content-Type: application/json" \
 -d '{"question": "Dante verso chi dimostra un disprezzo radicale?"}'
 
+#### 1Samuele.pdf
+
+curl -X POST http://localhost:8092/api/query \
+-H "Content-Type: application/json" \
+-d '{"question": "Chi doveva custodire l arca del Signore?"}'
+
+
+curl -X POST http://localhost:8092/api/query \
+-H "Content-Type: application/json" \
+-d '{"question": "Cosa aveva in mano il servo del sacerdote?"}'
+

@@ -5,13 +5,90 @@ Sistema completo di **Retrieval-Augmented Generation (RAG)** per interrogare doc
 - 🤖 **Google Gemini 2.0 Flash** - LLM per generare risposte
 - 📄 **Apache Tika** - Estrazione testo da PDF, Word, Excel, ecc.
 - ⚡ **LangChain4j** - Orchestrazione RAG
+- 🐫 **Apache Camel** - Polling automatico directory
 - 🍃 **Spring Boot 3.2.0** - Framework
 
 ## 🎯 Cosa Fa
 
-1. **Upload Documenti**: Carica PDF, Word, Excel, PowerPoint, TXT, HTML
-2. **Indicizzazione**: Estrae il testo, lo divide in chunks, genera embeddings e salva in Qdrant
-3. **Query Intelligenti**: Fai domande sui documenti e ricevi risposte contestualizzate da Gemini
+1. **Upload Documenti**: Carica PDF, Word, Excel, PowerPoint, TXT, HTML via API REST
+2. **Auto-Polling Directory**: Monitora automaticamente una directory e processa i nuovi file
+3. **Indicizzazione**: Estrae il testo, lo divide in chunks, genera embeddings e salva in Qdrant
+4. **Query Intelligenti**: Fai domande sui documenti e ricevi risposte contestualizzate da Gemini
+
+## 🆕 Novità: Auto-Polling Directory con Apache Camel
+
+Il sistema ora include un **meccanismo di polling automatico** che monitora una directory configurabile:
+
+- 📂 Monitora automaticamente una directory ogni 5 secondi (configurabile)
+- 🔍 Filtra solo file supportati (PDF, DOC, DOCX, XLS, XLSX, PPT, PPTX, TXT, HTML, XML)
+- ⚡ Processa fino a 3 file in parallelo (configurabile)
+- ✅ Sposta i file processati in una directory separata
+- ❌ Gestisce errori spostando i file problematici in error-directory
+- 🎛️ Completamente configurabile via `application.yml`
+
+### Configurazione Auto-Polling
+
+Modifica `src/main/resources/application.yml`:
+
+```yaml
+file-polling:
+  # Abilita/disabilita il polling automatico
+  enabled: true
+  
+  # Directory da monitorare per nuovi file
+  input-directory: ${HOME}/rag-input
+  
+  # Directory dove spostare i file processati
+  processed-directory: ${HOME}/rag-processed
+  
+  # Directory per i file che hanno dato errore
+  error-directory: ${HOME}/rag-errors
+  
+  # Pattern dei file da processare (regex Java)
+  file-pattern: .*\\.(pdf|doc|docx|xls|xlsx|ppt|pptx|txt|html|xml)$
+  
+  # Frequenza di polling in millisecondi (5000ms = 5 secondi)
+  delay: 5000
+  
+  # Delay iniziale prima del primo polling
+  initial-delay: 1000
+  
+  # Numero di file da processare in parallelo
+  max-concurrent: 3
+```
+
+### Come Usare il Polling
+
+1. **Avvia l'applicazione** con `file-polling.enabled: true`
+2. **Le directory vengono create automaticamente** all'avvio
+3. **Copia i file** (PDF, DOCX, ecc.) nella directory `~/rag-input`
+4. **Il sistema li processa automaticamente** ogni 5 secondi
+5. **I file processati** vengono spostati in `~/rag-processed`
+6. **In caso di errori**, i file finiscono in `~/rag-errors`
+
+```bash
+# Esempio di utilizzo
+mkdir -p ~/rag-input ~/rag-processed ~/rag-errors
+
+# Copia un documento nella directory monitorata
+cp documento.pdf ~/rag-input/
+
+# Il sistema lo processerà automaticamente entro 5 secondi!
+# Vedrai nei log:
+# 📥 Nuovo file rilevato: documento.pdf
+# 🔄 Inizio processamento file: documento.pdf
+# ✅ File processato con successo: documento.pdf
+# 📁 File spostato in processed-directory
+```
+
+### Disabilitare il Polling
+
+Se preferisci usare solo l'API REST per l'upload manuale:
+
+```yaml
+file-polling:
+  enabled: false
+```
 
 ## 📋 Prerequisiti
 
@@ -141,6 +218,8 @@ curl http://localhost:8092/api/query/health
 
 ## 🎯 Esempio Completo
 
+### Modalità 1: Upload Manuale via API
+
 ```bash
 # 1. Avvia il sistema
 ./start.sh
@@ -155,6 +234,56 @@ curl "http://localhost:8092/api/query?question=Quali%20sono%20i%20requisiti%20di
 
 curl "http://localhost:8092/api/query?question=Riassumi%20il%20capitolo%203"
 ```
+
+### Modalità 2: Auto-Polling (Consigliato!)
+
+```bash
+# 1. Avvia il sistema con polling abilitato
+./start.sh
+
+# 2. Le directory vengono create automaticamente:
+#    ~/rag-input (file da processare)
+#    ~/rag-processed (file processati con successo)
+#    ~/rag-errors (file con errori)
+
+# 3. Copia i documenti nella directory monitorata
+cp documento1.pdf ~/rag-input/
+cp contratto.docx ~/rag-input/
+cp report.xlsx ~/rag-input/
+
+# Il sistema li processerà automaticamente ogni 5 secondi!
+# Nessuna chiamata API necessaria 🎉
+
+# 4. Fai domande su tutti i documenti caricati
+curl "http://localhost:8092/api/query?question=Riassumi%20tutti%20i%20documenti"
+
+# 5. Verifica i file processati
+ls -la ~/rag-processed/
+```
+
+## 🐫 Perché Apache Camel per il Polling?
+
+Apache Camel è la scelta ideale per il polling di directory perché:
+
+✅ **Enterprise Integration Pattern** - Pattern consolidato per integrazione
+✅ **Configurazione Dichiarativa** - Route chiare e manutenibili
+✅ **Gestione Errori Integrata** - Error handling robusto out-of-the-box
+✅ **Filtering Avanzato** - Regex, pattern matching, filtri custom
+✅ **Scalabilità** - Thread pool configurabile per processing parallelo
+✅ **Movimentazione File** - Move, copy, delete automatici dopo processing
+✅ **Monitoring** - Metriche e health checks integrati
+✅ **Zero Boilerplate** - Meno codice rispetto a WatchService o Scheduler custom
+
+### Alternative Considerate
+
+| Soluzione | Pro | Contro |
+|-----------|-----|--------|
+| **Apache Camel** ✅ | Robusto, testato, feature-rich | Dipendenza extra |
+| Java WatchService | Nativo, reattivo | Codice boilerplate, meno robusto |
+| @Scheduled Spring | Semplice | Meno funzionalità (no move/error handling) |
+| Quartz Scheduler | Potente | Overkill per file polling |
+
+**Camel** offre il miglior rapporto funzionalità/complessità per questo use case.
 
 ## ⚙️ Configurazione
 
