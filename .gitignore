@@ -41,8 +41,20 @@ Thumbs.db
 rag-input/
 rag-processed/
 rag-errors/
-*.pdf
-*.doc
-*.docx
-*.xls
-*.xlsx
+
+# Ignora documenti nelle directory di polling (ma non in doc/)
+rag-input/*.pdf
+rag-input/*.doc
+rag-input/*.docx
+rag-input/*.xls
+rag-input/*.xlsx
+rag-processed/*.pdf
+rag-processed/*.doc
+rag-processed/*.docx
+rag-processed/*.xls
+rag-processed/*.xlsx
+rag-errors/*.pdf
+rag-errors/*.doc
+rag-errors/*.docx
+rag-errors/*.xls
+rag-errors/*.xlsx
