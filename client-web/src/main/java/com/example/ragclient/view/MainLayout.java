@@ -48,7 +48,6 @@ public class MainLayout extends AppLayout {
         
         nav.addItem(new SideNavItem("💬 Chat RAG", ChatView.class, VaadinIcon.CHAT.create()));
         nav.addItem(new SideNavItem("📄 Documenti", DocumentsView.class, VaadinIcon.FILE_TEXT.create()));
-        nav.addItem(new SideNavItem("📤 Upload", UploadView.class, VaadinIcon.UPLOAD.create()));
         nav.addItem(new SideNavItem("🔧 Status", StatusView.class, VaadinIcon.DASHBOARD.create()));
 
         addToDrawer(nav);
