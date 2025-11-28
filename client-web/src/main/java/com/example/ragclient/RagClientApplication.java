@@ -1,13 +1,11 @@
 package com.example.ragclient;
 
+import com.vaadin.flow.component.page.AppShellConfigurator;
 import org.springframework.boot.SpringApplication;
 import org.springframework.boot.autoconfigure.SpringBootApplication;
 
-/**
- * Applicazione principale client web Vaadin 24 per il sistema RAG
- */
 @SpringBootApplication
-public class RagClientApplication {
+public class RagClientApplication implements AppShellConfigurator {
 
     public static void main(String[] args) {
         SpringApplication.run(RagClientApplication.class, args);

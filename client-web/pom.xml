@@ -8,20 +8,19 @@
     <parent>
         <groupId>org.springframework.boot</groupId>
         <artifactId>spring-boot-starter-parent</artifactId>
-        <version>3.3.0</version>
+        <version>3.2.0</version>
         <relativePath/>
     </parent>
 
     <groupId>com.example</groupId>
     <artifactId>rag-client-web</artifactId>
     <version>1.0.0</version>
-    <name>RAG Client Web - Vaadin 24</name>
-    <description>Client web Vaadin 24 per il sistema RAG</description>
-    <packaging>jar</packaging>
+    <name>RAG Client Web</name>
+    <description>Vaadin 24 Client for RAG System</description>
 
     <properties>
         <java.version>17</java.version>
-        <vaadin.version>24.4.4</vaadin.version>
+        <vaadin.version>24.3.0</vaadin.version>
     </properties>
 
     <dependencyManagement>
@@ -37,16 +36,22 @@
     </dependencyManagement>
 
     <dependencies>
+        <!-- Spring Boot Web -->
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-web</artifactId>
+        </dependency>
+
         <!-- Vaadin Spring Boot Starter -->
         <dependency>
             <groupId>com.vaadin</groupId>
             <artifactId>vaadin-spring-boot-starter</artifactId>
         </dependency>
 
-        <!-- Spring Boot Web -->
+        <!-- Spring Boot WebClient for REST calls -->
         <dependency>
             <groupId>org.springframework.boot</groupId>
-            <artifactId>spring-boot-starter-web</artifactId>
+            <artifactId>spring-boot-starter-webflux</artifactId>
         </dependency>
 
         <!-- Lombok -->
@@ -56,10 +61,11 @@
             <optional>true</optional>
         </dependency>
 
-        <!-- Spring Boot DevTools (sviluppo) -->
+        <!-- Spring Boot DevTools -->
         <dependency>
             <groupId>org.springframework.boot</groupId>
             <artifactId>spring-boot-devtools</artifactId>
+            <scope>runtime</scope>
             <optional>true</optional>
         </dependency>
 
@@ -72,7 +78,6 @@
     </dependencies>
 
     <build>
-        <defaultGoal>spring-boot:run</defaultGoal>
         <plugins>
             <plugin>
                 <groupId>org.springframework.boot</groupId>
@@ -85,20 +90,6 @@
                         </exclude>
                     </excludes>
                 </configuration>
-            </plugin>
-            
-            <!-- Vaadin Maven Plugin -->
-            <plugin>
-                <groupId>com.vaadin</groupId>
-                <artifactId>vaadin-maven-plugin</artifactId>
-                <version>${vaadin.version}</version>
-                <executions>
-                    <execution>
-                        <goals>
-                            <goal>prepare-frontend</goal>
-                        </goals>
-                    </execution>
-                </executions>
             </plugin>
         </plugins>
     </build>
@@ -120,23 +111,9 @@
                                 <phase>compile</phase>
                             </execution>
                         </executions>
-                        <configuration>
-                            <productionMode>true</productionMode>
-                        </configuration>
                     </plugin>
                 </plugins>
             </build>
         </profile>
     </profiles>
-
-    <repositories>
-        <repository>
-            <id>Vaadin Directory</id>
-            <url>https://maven.vaadin.com/vaadin-addons</url>
-            <snapshots>
-                <enabled>false</enabled>
-            </snapshots>
-        </repository>
-    </repositories>
-
 </project>

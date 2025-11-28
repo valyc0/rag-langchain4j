@@ -3,30 +3,29 @@ package com.example.ragclient.config;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
-import org.springframework.http.client.SimpleClientHttpRequestFactory;
-import org.springframework.web.client.RestClient;
+import org.springframework.http.client.reactive.ReactorClientHttpConnector;
+import org.springframework.web.reactive.function.client.WebClient;
+import reactor.netty.http.client.HttpClient;
 
-/**
- * Configurazione RestClient per chiamate API al backend RAG
- */
+import java.time.Duration;
+
 @Configuration
 public class RestClientConfig {
 
     @Value("${rag.api.base-url}")
-    private String ragApiBaseUrl;
+    private String baseUrl;
 
-    @Value("${rag.api.timeout-seconds:60}")
-    private int timeoutSeconds;
+    @Value("${rag.api.timeout:60000}")
+    private long timeout;
 
     @Bean
-    public RestClient ragApiRestClient() {
-        SimpleClientHttpRequestFactory factory = new SimpleClientHttpRequestFactory();
-        factory.setConnectTimeout(timeoutSeconds * 1000);
-        factory.setReadTimeout(timeoutSeconds * 1000);
-        
-        return RestClient.builder()
-                .baseUrl(ragApiBaseUrl)
-                .requestFactory(factory)
+    public WebClient webClient() {
+        HttpClient httpClient = HttpClient.create()
+                .responseTimeout(Duration.ofMillis(timeout));
+
+        return WebClient.builder()
+                .baseUrl(baseUrl)
+                .clientConnector(new ReactorClientHttpConnector(httpClient))
                 .build();
     }
 }
