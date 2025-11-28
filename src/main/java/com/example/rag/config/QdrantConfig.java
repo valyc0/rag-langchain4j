@@ -3,6 +3,8 @@ package com.example.rag.config;
 import dev.langchain4j.data.segment.TextSegment;
 import dev.langchain4j.store.embedding.EmbeddingStore;
 import dev.langchain4j.store.embedding.qdrant.QdrantEmbeddingStore;
+import io.qdrant.client.QdrantClient;
+import io.qdrant.client.QdrantGrpcClient;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
@@ -24,6 +26,14 @@ public class QdrantConfig {
 
     @Value("${qdrant.use-tls:false}")
     private boolean useTls;
+
+    @Bean
+    public QdrantClient qdrantClient() {
+        return new QdrantClient(
+            QdrantGrpcClient.newBuilder(qdrantHost, qdrantPort, useTls)
+                .build()
+        );
+    }
 
     @Bean
     public EmbeddingStore<TextSegment> embeddingStore() {

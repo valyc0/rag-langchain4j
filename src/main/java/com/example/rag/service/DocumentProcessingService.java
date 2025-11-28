@@ -9,7 +9,10 @@ import dev.langchain4j.data.embedding.Embedding;
 import dev.langchain4j.data.segment.TextSegment;
 import dev.langchain4j.model.embedding.EmbeddingModel;
 import dev.langchain4j.store.embedding.EmbeddingStore;
-import lombok.RequiredArgsConstructor;
+import io.qdrant.client.QdrantClient;
+import io.qdrant.client.grpc.Points.Filter;
+import io.qdrant.client.grpc.Points.ScrollPoints;
+import io.qdrant.client.grpc.Points.ScrollResponse;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
@@ -23,6 +26,9 @@ import java.nio.file.StandardCopyOption;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.stream.Collectors;
+
+import static io.qdrant.client.ConditionFactory.matchKeyword;
 
 /**
  * Service per processare documenti:
@@ -37,6 +43,7 @@ public class DocumentProcessingService {
 
     private final EmbeddingStore<TextSegment> embeddingStore;
     private final EmbeddingModel embeddingModel;
+    private final QdrantClient qdrantClient;
 
     @Value("${rag.chunk-size:300}")
     private int chunkSize;  // Caratteri per chunk (configurabile)
@@ -44,11 +51,16 @@ public class DocumentProcessingService {
     @Value("${rag.chunk-overlap:50}")
     private int chunkOverlap; // Overlap tra chunks (configurabile)
     
+    @Value("${qdrant.collection-name:documenti}")
+    private String collectionName;
+    
     public DocumentProcessingService(
             EmbeddingStore<TextSegment> embeddingStore,
-            EmbeddingModel embeddingModel) {
+            EmbeddingModel embeddingModel,
+            QdrantClient qdrantClient) {
         this.embeddingStore = embeddingStore;
         this.embeddingModel = embeddingModel;
+        this.qdrantClient = qdrantClient;
     }
 
     /**
@@ -197,6 +209,66 @@ public class DocumentProcessingService {
             return Map.of(
                 "error", "Impossibile recuperare la lista documenti",
                 "details", e.getMessage()
+            );
+        }
+    }
+
+    /**
+     * Cancella tutti i chunks di un documento da Qdrant
+     */
+    public Map<String, Object> deleteDocument(String filename) {
+        log.info("🗑️ Inizio cancellazione documento: {}", filename);
+        
+        try {
+            // Usa l'API Qdrant per cancellare i punti filtrando per metadata
+            Filter filter = Filter.newBuilder()
+                .addMust(matchKeyword("filename", filename))
+                .build();
+            
+            // Recupera gli ID dei punti da cancellare
+            ScrollPoints scrollRequest = ScrollPoints.newBuilder()
+                .setCollectionName(collectionName)
+                .setFilter(filter)
+                .setLimit(1000)
+                .setWithPayload(io.qdrant.client.grpc.Points.WithPayloadSelector.newBuilder()
+                    .setEnable(false)
+                    .build())
+                .build();
+            
+            ScrollResponse scrollResponse = qdrantClient.scrollAsync(scrollRequest).get();
+            List<io.qdrant.client.grpc.Points.PointId> pointIds = scrollResponse.getResultList()
+                .stream()
+                .map(point -> point.getId())
+                .collect(Collectors.toList());
+            
+            if (pointIds.isEmpty()) {
+                log.warn("⚠️ Nessun chunk trovato per il documento: {}", filename);
+                return Map.of(
+                    "status", "not_found",
+                    "message", "Documento non trovato",
+                    "filename", filename
+                );
+            }
+            
+            // Cancella i punti per ID
+            qdrantClient.deleteAsync(collectionName, pointIds).get();
+            
+            log.info("✅ Documento cancellato: {} ({} chunks rimossi)", filename, pointIds.size());
+            
+            return Map.of(
+                "status", "success",
+                "message", "Documento cancellato con successo",
+                "filename", filename,
+                "chunks_deleted", pointIds.size()
+            );
+            
+        } catch (Exception e) {
+            log.error("❌ Errore durante la cancellazione del documento: {}", filename, e);
+            return Map.of(
+                "status", "error",
+                "message", "Errore durante la cancellazione",
+                "filename", filename,
+                "error", e.getMessage()
             );
         }
     }

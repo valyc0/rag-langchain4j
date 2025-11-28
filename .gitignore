@@ -58,3 +58,4 @@ rag-errors/*.doc
 rag-errors/*.docx
 rag-errors/*.xls
 rag-errors/*.xlsx
+qdrant_storage/

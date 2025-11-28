@@ -1,0 +1,30 @@
+# RAG Client Web Configuration
+server:
+  port: 8093
+
+spring:
+  application:
+    name: rag-client-web
+  servlet:
+    multipart:
+      max-file-size: 500MB
+      max-request-size: 500MB
+
+# Vaadin Configuration
+vaadin:
+  launch-browser: false
+  
+# RAG API Backend Configuration
+rag:
+  api:
+    base-url: http://localhost:8092
+    timeout-seconds: 60
+
+# Logging - DEBUG per vedere le chiamate API
+logging:
+  level:
+    root: INFO
+    com.example.ragclient: DEBUG
+    com.example.ragclient.service: DEBUG
+    org.springframework.web.client: DEBUG
+    com.vaadin: WARN

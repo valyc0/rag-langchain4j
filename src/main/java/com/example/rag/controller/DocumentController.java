@@ -92,6 +92,49 @@ public class DocumentController {
     }
 
     /**
+     * Cancella un documento indicizzato
+     * 
+     * DELETE /api/documents/{filename}
+     * 
+     * @param filename Il nome del file da cancellare
+     * @return Risultato della cancellazione
+     */
+    @DeleteMapping("/{filename}")
+    public ResponseEntity<Map<String, Object>> deleteDocument(
+            @PathVariable("filename") String filename) {
+        
+        try {
+            log.info("🗑️ Richiesta cancellazione documento: {}", filename);
+            
+            // Validazione
+            if (filename == null || filename.trim().isEmpty()) {
+                return ResponseEntity.badRequest()
+                        .body(Map.of("error", "Nome file non valido"));
+            }
+            
+            // Cancella il documento
+            Map<String, Object> result = documentProcessingService.deleteDocument(filename);
+            
+            String status = (String) result.get("status");
+            if ("not_found".equals(status)) {
+                return ResponseEntity.status(HttpStatus.NOT_FOUND).body(result);
+            } else if ("error".equals(status)) {
+                return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body(result);
+            }
+            
+            return ResponseEntity.ok(result);
+            
+        } catch (Exception e) {
+            log.error("❌ Errore durante la cancellazione del documento", e);
+            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
+                    .body(Map.of(
+                        "error", "Errore durante la cancellazione del documento",
+                        "details", e.getMessage()
+                    ));
+        }
+    }
+
+    /**
      * Health check endpoint
      */
     @GetMapping("/health")
