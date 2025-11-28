@@ -49,8 +49,8 @@ public class MainLayout extends AppLayout {
     private void createDrawer() {
         SideNav nav = new SideNav();
         
-        SideNavItem queryItem = new SideNavItem("Query RAG", QueryView.class);
-        queryItem.setPrefixComponent(new Span("❓"));
+        SideNavItem queryItem = new SideNavItem("Chat RAG", QueryView.class);
+        queryItem.setPrefixComponent(new Span("💬"));
         
         SideNavItem uploadItem = new SideNavItem("Upload Document", UploadView.class);
         uploadItem.setPrefixComponent(new Span("📤"));
