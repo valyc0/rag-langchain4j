@@ -15,6 +15,7 @@ import io.qdrant.client.grpc.Points.ScrollPoints;
 import io.qdrant.client.grpc.Points.ScrollResponse;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.scheduling.annotation.Async;
 import org.springframework.stereotype.Service;
 import org.springframework.web.multipart.MultipartFile;
 
@@ -44,6 +45,7 @@ public class DocumentProcessingService {
     private final EmbeddingStore<TextSegment> embeddingStore;
     private final EmbeddingModel embeddingModel;
     private final QdrantClient qdrantClient;
+    private final DocumentStatusService documentStatusService;
 
     @Value("${rag.chunk-size:300}")
     private int chunkSize;  // Caratteri per chunk (configurabile)
@@ -57,14 +59,64 @@ public class DocumentProcessingService {
     public DocumentProcessingService(
             EmbeddingStore<TextSegment> embeddingStore,
             EmbeddingModel embeddingModel,
-            QdrantClient qdrantClient) {
+            QdrantClient qdrantClient,
+            DocumentStatusService documentStatusService) {
         this.embeddingStore = embeddingStore;
         this.embeddingModel = embeddingModel;
         this.qdrantClient = qdrantClient;
+        this.documentStatusService = documentStatusService;
     }
 
     /**
-     * Processa e indicizza un documento
+     * Processa e indicizza un documento in modo asincrono
+     */
+    @Async("documentProcessingExecutor")
+    public void processDocumentAsync(String filename, byte[] fileContent) {
+        log.info("📄 Inizio processamento asincrono documento: {}", filename);
+        
+        Path tempFile = null;
+        try {
+            // 1. Salva temporaneamente il file
+            tempFile = saveTempFile(filename, fileContent);
+            
+            // 2. Estrai il testo con Apache Tika
+            String text = extractText(tempFile);
+            log.info("✅ Testo estratto: {} caratteri", text.length());
+            
+            // 3. Dividi in chunks
+            List<TextSegment> chunks = splitIntoChunks(text, filename);
+            log.info("✂️ Documento diviso in {} chunks", chunks.size());
+            
+            // 4. Genera embeddings
+            List<Embedding> embeddings = generateEmbeddings(chunks);
+            log.info("🔢 Embeddings generati: {} vettori di {} dimensioni", 
+                    embeddings.size(), embeddings.get(0).dimension());
+            
+            // 5. Salva in Qdrant
+            embeddingStore.addAll(embeddings, chunks);
+            log.info("💾 Salvato in Qdrant!");
+            
+            // 6. Marca come READY
+            documentStatusService.markReady(filename, chunks.size());
+            
+        } catch (Exception e) {
+            log.error("❌ Errore durante il processamento asincrono: {}", filename, e);
+            String errorMessage = e.getMessage() != null ? e.getMessage() : "Errore sconosciuto";
+            documentStatusService.markError(filename, errorMessage);
+        } finally {
+            // 7. Pulisci file temporaneo
+            if (tempFile != null) {
+                try {
+                    Files.deleteIfExists(tempFile);
+                } catch (IOException e) {
+                    log.warn("⚠️ Impossibile eliminare file temporaneo: {}", tempFile);
+                }
+            }
+        }
+    }
+    
+    /**
+     * Processa e indicizza un documento (sincrono - legacy)
      */
     public Map<String, Object> processDocument(MultipartFile file) throws IOException {
         log.info("📄 Inizio processamento documento: {}", file.getOriginalFilename());
@@ -107,7 +159,7 @@ public class DocumentProcessingService {
     }
 
     /**
-     * Salva il file temporaneamente
+     * Salva il file temporaneamente da MultipartFile
      */
     private Path saveTempFile(MultipartFile file) throws IOException {
         Path tempFile = Files.createTempFile("upload-", "-" + file.getOriginalFilename());
@@ -116,6 +168,16 @@ public class DocumentProcessingService {
             Files.copy(inputStream, tempFile, StandardCopyOption.REPLACE_EXISTING);
         }
         
+        log.debug("📁 File salvato temporaneamente: {}", tempFile);
+        return tempFile;
+    }
+    
+    /**
+     * Salva il file temporaneamente da byte array
+     */
+    private Path saveTempFile(String filename, byte[] content) throws IOException {
+        Path tempFile = Files.createTempFile("upload-", "-" + filename);
+        Files.write(tempFile, content);
         log.debug("📁 File salvato temporaneamente: {}", tempFile);
         return tempFile;
     }
@@ -129,7 +191,25 @@ public class DocumentProcessingService {
         
         try (InputStream inputStream = Files.newInputStream(filePath)) {
             Document document = parser.parse(inputStream);
-            return document.text();
+            String text = document.text();
+            
+            // Verifica che il testo non sia vuoto o solo whitespace
+            if (text == null || text.trim().isEmpty()) {
+                throw new IOException(
+                    "Il documento non contiene testo estraibile. " +
+                    "Potrebbe essere un'immagine scannerizzata, protetto da password, " +
+                    "o in un formato non supportato."
+                );
+            }
+            
+            return text;
+        } catch (dev.langchain4j.data.document.BlankDocumentException e) {
+            // Rilancia come IOException con messaggio descrittivo
+            throw new IOException(
+                "Il documento non contiene testo estraibile. " +
+                "Potrebbe essere un'immagine scannerizzata, protetto da password, " +
+                "o in un formato non supportato.", e
+            );
         }
     }
 

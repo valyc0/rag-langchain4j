@@ -15,6 +15,7 @@ import lombok.NoArgsConstructor;
 @JsonIgnoreProperties(ignoreUnknown = true)
 public class UploadResponse {
     private String message;
+    private String error;
     private UploadData data;
 
     @Data

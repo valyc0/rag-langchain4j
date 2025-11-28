@@ -11,6 +11,8 @@ import org.springframework.util.MultiValueMap;
 import org.springframework.web.client.RestClient;
 import org.springframework.web.client.RestClientException;
 
+import java.util.Map;
+
 /**
  * Servizio per comunicare con le API del backend RAG usando RestClient
  */
@@ -103,18 +105,86 @@ public class RagApiService {
                     .contentType(MediaType.MULTIPART_FORM_DATA)
                     .body(body)
                     .retrieve()
+                    .onStatus(status -> status.is4xxClientError() || status.is5xxServerError(), 
+                            (request, response) -> {
+                                // Gestisce errori HTTP leggendo il body della risposta
+                                String errorBody;
+                                try {
+                                    errorBody = new String(response.getBody().readAllBytes());
+                                } catch (Exception e) {
+                                    errorBody = "Errore nella lettura della risposta";
+                                }
+                                log.error("Errore HTTP {} durante upload: {}", response.getStatusCode(), errorBody);
+                                throw new RestClientException("Errore HTTP " + response.getStatusCode() + ": " + errorBody);
+                            })
                     .body(UploadResponse.class);
         } catch (RestClientException e) {
             log.error("Errore upload documento: {}", e.getMessage());
             UploadResponse response = new UploadResponse();
-            response.setMessage("❌ Errore upload: " + e.getMessage());
+            
+            // Prova ad estrarre un messaggio più leggibile dall'errore
+            String errorMsg = extractErrorMessage(e.getMessage());
+            response.setMessage("❌ " + errorMsg);
             return response;
         } catch (Exception e) {
-            log.error("Errore upload documento: {}", e.getMessage());
+            log.error("Errore upload documento: {}", e.getMessage(), e);
             UploadResponse response = new UploadResponse();
-            response.setMessage("❌ Errore upload: " + e.getMessage());
+            response.setMessage("❌ Errore durante l'upload: " + e.getMessage());
             return response;
         }
+    }
+    
+    /**
+     * Estrae un messaggio di errore leggibile dalla risposta
+     */
+    private String extractErrorMessage(String errorMessage) {
+        if (errorMessage == null) {
+            return "Errore sconosciuto";
+        }
+        
+        try {
+            // Cerca il campo "message" nel JSON
+            if (errorMessage.contains("\"message\"")) {
+                int start = errorMessage.indexOf("\"message\"") + 11; // "message":"
+                int end = errorMessage.indexOf("\"", start);
+                if (end > start) {
+                    String msg = errorMessage.substring(start, end);
+                    return msg.isEmpty() ? "Errore nel processamento del documento" : msg;
+                }
+            }
+            
+            // Cerca il campo "error" nel JSON
+            if (errorMessage.contains("\"error\"")) {
+                int start = errorMessage.indexOf("\"error\"") + 9; // "error":"
+                int end = errorMessage.indexOf("\"", start);
+                if (end > start) {
+                    String err = errorMessage.substring(start, end);
+                    if (!err.isEmpty() && !err.equals("Internal Server Error")) {
+                        return err;
+                    }
+                }
+            }
+            
+            // Se troviamo "Internal Server Error", ritorna un messaggio più amichevole
+            if (errorMessage.contains("Internal Server Error")) {
+                return "Errore del server durante il processamento del documento. Il file potrebbe essere corrotto o non leggibile.";
+            }
+            
+            // Se contiene "Bad Request"
+            if (errorMessage.contains("Bad Request")) {
+                return "Richiesta non valida. Verifica che il file sia nel formato corretto.";
+            }
+            
+        } catch (Exception e) {
+            log.warn("Errore nell'estrazione del messaggio di errore", e);
+        }
+        
+        // Fallback al messaggio originale, ma più pulito
+        if (errorMessage.length() > 200) {
+            return "Errore del server: " + errorMessage.substring(0, 200) + "...";
+        }
+        
+        return errorMessage;
     }
 
     /**
@@ -190,6 +260,36 @@ public class RagApiService {
             return "UP".equals(health.getStatus());
         } catch (Exception e) {
             return false;
+        }
+    }
+    
+    /**
+     * Ottiene lo stato di un documento specifico
+     */
+    public DocumentStatusResponse getDocumentStatus(String filename) {
+        try {
+            return restClient.get()
+                    .uri("/api/documents/status/{filename}", filename)
+                    .retrieve()
+                    .body(DocumentStatusResponse.class);
+        } catch (Exception e) {
+            log.error(">>> Errore recupero stato documento: {}", e.getMessage());
+            return null;
+        }
+    }
+    
+    /**
+     * Ottiene lo stato di tutti i documenti
+     */
+    public Map<String, Object> getAllStatuses() {
+        try {
+            return restClient.get()
+                    .uri("/api/documents/statuses")
+                    .retrieve()
+                    .body(Map.class);
+        } catch (Exception e) {
+            log.error(">>> Errore recupero stati documenti: {}", e.getMessage());
+            return null;
         }
     }
 }
