@@ -1,8 +1,8 @@
-# Sistema RAG con Qdrant e Google Gemini 2.0 Flash
+# Sistema RAG con Qdrant e Multi-LLM Support
 
 Sistema completo di **Retrieval-Augmented Generation (RAG)** per interrogare documenti usando:
 - 🗄️ **Qdrant** - Vector database per gli embeddings
-- 🤖 **Google Gemini 2.0 Flash** - LLM per generare risposte
+- 🤖 **Multi-LLM Support** - Google Gemini, Ollama (locale), OpenRouter
 - 📄 **Apache Tika** - Estrazione testo da PDF, Word, Excel, ecc.
 - ⚡ **LangChain4j** - Orchestrazione RAG
 - 🐫 **Apache Camel** - Polling automatico directory
@@ -13,81 +13,140 @@ Sistema completo di **Retrieval-Augmented Generation (RAG)** per interrogare doc
 1. **Upload Documenti**: Carica PDF, Word, Excel, PowerPoint, TXT, HTML via API REST
 2. **Auto-Polling Directory**: Monitora automaticamente una directory e processa i nuovi file
 3. **Indicizzazione**: Estrae il testo, lo divide in chunks, genera embeddings e salva in Qdrant
-4. **Query Intelligenti**: Fai domande sui documenti e ricevi risposte contestualizzate da Gemini
+4. **Query Intelligenti**: Fai domande sui documenti e ricevi risposte contestualizzate
 
-## 🆕 Novità: Auto-Polling Directory con Apache Camel
+## 🤖 Provider LLM Supportati
 
-Il sistema ora include un **meccanismo di polling automatico** che monitora una directory configurabile:
+Il sistema supporta **3 provider LLM** configurabili:
 
-- 📂 Monitora automaticamente una directory ogni 5 secondi (configurabile)
-- 🔍 Filtra solo file supportati (PDF, DOC, DOCX, XLS, XLSX, PPT, PPTX, TXT, HTML, XML)
-- ⚡ Processa fino a 3 file in parallelo (configurabile)
-- ✅ Sposta i file processati in una directory separata
-- ❌ Gestisce errori spostando i file problematici in error-directory
-- 🎛️ Completamente configurabile via `application.yml`
+| Provider | Descrizione | Costo | Requisiti |
+|----------|-------------|-------|-----------|
+| **Gemini** | Google AI, veloce e intelligente | GRATIS (1500 req/giorno) | API Key |
+| **Ollama** | Modelli locali (Llama, Mistral, ecc.) | GRATIS | Installazione locale |
+| **OpenRouter** | Gateway multi-LLM (GPT-4, Claude, ecc.) | Pay-per-use | API Key |
 
-### Configurazione Auto-Polling
+### 🔧 Configurazione Provider LLM
 
-Modifica `src/main/resources/application.yml`:
+Imposta il provider tramite variabile d'ambiente `LLM_PROVIDER` o in `application.yml`:
+
+```bash
+# ========== GEMINI (default) ==========
+export LLM_PROVIDER=gemini
+export GEMINI_API_KEY=la_tua_api_key
+
+# ========== OLLAMA (locale) ==========
+export LLM_PROVIDER=ollama
+export OLLAMA_MODEL=llama3.2
+# opzionale: export OLLAMA_BASE_URL=http://localhost:11434
+
+# ========== OPENROUTER ==========
+export LLM_PROVIDER=openrouter
+export OPENROUTER_API_KEY=la_tua_api_key
+export OPENROUTER_MODEL=anthropic/claude-3-haiku
+```
+
+### 📊 Modelli Disponibili
+
+#### Google Gemini
+| Modello | Descrizione | Costo |
+|---------|-------------|-------|
+| `gemini-2.5-flash` | Più recente, veloce | GRATIS |
+| `gemini-2.0-flash-exp` | Sperimentale | GRATIS |
+| `gemini-1.5-flash` | Veloce, stabile | GRATIS |
+| `gemini-1.5-pro` | Più capace | GRATIS |
+
+#### Ollama (Modelli Locali)
+| Modello | Dimensione | Uso consigliato |
+|---------|------------|-----------------|
+| `llama3.2` | 3B/11B | General purpose, veloce |
+| `llama3.1` | 8B/70B | Potente, multilingua |
+| `mistral` | 7B | Ottimo rapporto qualità/velocità |
+| `mixtral` | 8x7B | MoE, molto capace |
+| `codellama` | 7B/13B/34B | Codice e documentazione tecnica |
+| `phi3` | 3.8B | Compatto, veloce |
+| `qwen2` | 0.5B-72B | Multilingua, cinese/inglese |
+
+#### OpenRouter
+| Modello | Provider | Caratteristiche |
+|---------|----------|-----------------|
+| `openai/gpt-4-turbo` | OpenAI | Top quality, costoso |
+| `openai/gpt-3.5-turbo` | OpenAI | Veloce, economico |
+| `anthropic/claude-3-opus` | Anthropic | Massima qualità |
+| `anthropic/claude-3-sonnet` | Anthropic | Bilanciato |
+| `anthropic/claude-3-haiku` | Anthropic | Veloce, economico |
+| `google/gemini-pro` | Google | Via OpenRouter |
+| `meta-llama/llama-3-70b-instruct` | Meta | Open source, potente |
+| `mistralai/mixtral-8x7b-instruct` | Mistral | MoE |
+
+Lista completa: [OpenRouter Models](https://openrouter.ai/models)
+
+### 🦙 Setup Ollama
+
+```bash
+# 1. Installa Ollama
+curl -fsSL https://ollama.ai/install.sh | sh
+
+# 2. Scarica un modello
+ollama pull llama3.2
+
+# 3. Verifica che funzioni
+ollama run llama3.2 "Ciao!"
+
+# 4. Configura l'applicazione
+export LLM_PROVIDER=ollama
+export OLLAMA_MODEL=llama3.2
+```
+
+### 🔑 Ottenere API Keys
+
+**Gemini (Gratuito):**
+1. Vai su [Google AI Studio](https://aistudio.google.com/app/apikey)
+2. Login con account Google
+3. "Create API Key"
+4. Include: 1500 req/giorno, 1M token/minuto, nessuna carta di credito
+
+**OpenRouter:**
+1. Vai su [OpenRouter](https://openrouter.ai/keys)
+2. Crea account
+3. Genera API key
+4. Ricarica credito
+
+## 🆕 Auto-Polling Directory con Apache Camel
+
+Il sistema monitora automaticamente una directory per nuovi file:
+
+- 📂 Polling ogni 5 secondi (configurabile)
+- 🔍 Filtra: PDF, DOC, DOCX, XLS, XLSX, PPT, PPTX, TXT, HTML, XML
+- ⚡ Processing parallelo (3 file simultanei)
+- ✅ Sposta file processati in directory separata
+- ❌ Gestisce errori con error-directory
+
+### Configurazione Polling
 
 ```yaml
 file-polling:
-  # Abilita/disabilita il polling automatico
   enabled: true
-  
-  # Directory da monitorare per nuovi file
-  input-directory: ${HOME}/rag-input
-  
-  # Directory dove spostare i file processati
-  processed-directory: ${HOME}/rag-processed
-  
-  # Directory per i file che hanno dato errore
-  error-directory: ${HOME}/rag-errors
-  
-  # Pattern dei file da processare (regex Java)
+  input-directory: rag-input
+  processed-directory: rag-processed
+  error-directory: rag-errors
   file-pattern: .*\\.(pdf|doc|docx|xls|xlsx|ppt|pptx|txt|html|xml)$
-  
-  # Frequenza di polling in millisecondi (5000ms = 5 secondi)
   delay: 5000
-  
-  # Delay iniziale prima del primo polling
   initial-delay: 1000
-  
-  # Numero di file da processare in parallelo
   max-concurrent: 3
 ```
 
-### Come Usare il Polling
-
-1. **Avvia l'applicazione** con `file-polling.enabled: true`
-2. **Le directory vengono create automaticamente** all'avvio
-3. **Copia i file** (PDF, DOCX, ecc.) nella directory `~/rag-input`
-4. **Il sistema li processa automaticamente** ogni 5 secondi
-5. **I file processati** vengono spostati in `~/rag-processed`
-6. **In caso di errori**, i file finiscono in `~/rag-errors`
+### Uso del Polling
 
 ```bash
-# Esempio di utilizzo
-mkdir -p ~/rag-input ~/rag-processed ~/rag-errors
+# Le directory vengono create automaticamente
+# Copia i file da processare:
+cp documento.pdf rag-input/
 
-# Copia un documento nella directory monitorata
-cp documento.pdf ~/rag-input/
-
-# Il sistema lo processerà automaticamente entro 5 secondi!
-# Vedrai nei log:
+# Il sistema processa automaticamente!
+# Logs:
 # 📥 Nuovo file rilevato: documento.pdf
 # 🔄 Inizio processamento file: documento.pdf
-# ✅ File processato con successo: documento.pdf
-# 📁 File spostato in processed-directory
-```
-
-### Disabilitare il Polling
-
-Se preferisci usare solo l'API REST per l'upload manuale:
-
-```yaml
-file-polling:
-  enabled: false
+# ✅ File processato con successo
 ```
 
 ## 📋 Prerequisiti
@@ -95,52 +154,42 @@ file-polling:
 - **Java 17+**
 - **Maven 3.6+**
 - **Docker & Docker Compose**
-- **API Key Google Gemini** (gratuita)
-
-## 🔑 Ottieni API Key Gemini
-
-1. Vai su [Google AI Studio](https://aistudio.google.com/app/apikey)
-2. Fai login con il tuo account Google
-3. Clicca su "Create API Key"
-4. Copia la chiave generata
-
-**È GRATUITA!** Include:
-- ✅ 1500 richieste/giorno
-- ✅ 1 milione di token/minuto
-- ✅ Nessuna carta di credito richiesta
+- **API Key** (Gemini o OpenRouter) oppure **Ollama** installato
 
 ## 🚀 Quick Start
 
-### 1. Configura l'API Key
+### 1. Configura il Provider LLM
 
 ```bash
-# Linux/Mac
-export GEMINI_API_KEY=la_tua_api_key_qui
+# Opzione A: Gemini (consigliato per iniziare)
+export LLM_PROVIDER=gemini
+export GEMINI_API_KEY=la_tua_api_key
 
-# Windows CMD
-set GEMINI_API_KEY=la_tua_api_key_qui
+# Opzione B: Ollama (nessuna API key necessaria)
+export LLM_PROVIDER=ollama
+ollama pull llama3.2
 
-# Windows PowerShell
-$env:GEMINI_API_KEY="la_tua_api_key_qui"
+# Opzione C: OpenRouter (accesso a tutti i modelli)
+export LLM_PROVIDER=openrouter
+export OPENROUTER_API_KEY=la_tua_api_key
+export OPENROUTER_MODEL=anthropic/claude-3-haiku
 ```
 
-### 2. Avvia tutto con uno script
+### 2. Avvia il Sistema
 
 ```bash
 chmod +x start.sh
 ./start.sh
 ```
 
-Oppure **manualmente**:
+Oppure manualmente:
 
 ```bash
 # 1. Avvia Qdrant
 docker-compose up -d
 
-# 2. Compila il progetto
+# 2. Compila e avvia
 mvn clean package
-
-# 3. Avvia l'applicazione
 java -jar target/rag-system-1.0.0.jar
 ```
 
@@ -148,34 +197,19 @@ L'applicazione sarà disponibile su: **http://localhost:8092**
 
 ## 📡 API Endpoints
 
-### 1. Upload Documento
+### Upload Documento
 
 ```bash
 curl -F "file=@documento.pdf" http://localhost:8092/api/documents/upload
 ```
 
-**Risposta:**
-```json
-{
-  "message": "✅ Documento caricato e indicizzato con successo!",
-  "data": {
-    "filename": "documento.pdf",
-    "size_bytes": 245678,
-    "text_length": 15234,
-    "chunks_created": 31,
-    "embedding_dimension": 384,
-    "status": "success"
-  }
-}
-```
-
-### 2. Fai una Domanda (GET)
+### Query (GET)
 
 ```bash
 curl "http://localhost:8092/api/query?question=Di%20cosa%20parla%20il%20documento?"
 ```
 
-### 3. Fai una Domanda (POST)
+### Query (POST)
 
 ```bash
 curl -X POST http://localhost:8092/api/query \
@@ -199,7 +233,7 @@ curl -X POST http://localhost:8092/api/query \
 }
 ```
 
-### 4. Health Check
+### Health Check
 
 ```bash
 curl http://localhost:8092/api/documents/health
@@ -208,93 +242,23 @@ curl http://localhost:8092/api/query/health
 
 ## 📂 Formati Supportati
 
-- ✅ **PDF** (.pdf)
-- ✅ **Microsoft Word** (.doc, .docx)
-- ✅ **Microsoft Excel** (.xls, .xlsx)
-- ✅ **Microsoft PowerPoint** (.ppt, .pptx)
-- ✅ **Testo** (.txt)
-- ✅ **HTML** (.html)
-- ✅ **XML** (.xml)
+- ✅ PDF (.pdf)
+- ✅ Microsoft Word (.doc, .docx)
+- ✅ Microsoft Excel (.xls, .xlsx)
+- ✅ Microsoft PowerPoint (.ppt, .pptx)
+- ✅ Testo (.txt)
+- ✅ HTML (.html)
+- ✅ XML (.xml)
 
-## 🎯 Esempio Completo
+## ⚙️ Configurazione Completa
 
-### Modalità 1: Upload Manuale via API
-
-```bash
-# 1. Avvia il sistema
-./start.sh
-
-# 2. Carica un documento
-curl -F "file=@manuale_utente.pdf" http://localhost:8092/api/documents/upload
-
-# 3. Fai delle domande
-curl "http://localhost:8092/api/query?question=Come%20si%20installa%20il%20software?"
-
-curl "http://localhost:8092/api/query?question=Quali%20sono%20i%20requisiti%20di%20sistema?"
-
-curl "http://localhost:8092/api/query?question=Riassumi%20il%20capitolo%203"
-```
-
-### Modalità 2: Auto-Polling (Consigliato!)
-
-```bash
-# 1. Avvia il sistema con polling abilitato
-./start.sh
-
-# 2. Le directory vengono create automaticamente:
-#    ~/rag-input (file da processare)
-#    ~/rag-processed (file processati con successo)
-#    ~/rag-errors (file con errori)
-
-# 3. Copia i documenti nella directory monitorata
-cp documento1.pdf ~/rag-input/
-cp contratto.docx ~/rag-input/
-cp report.xlsx ~/rag-input/
-
-# Il sistema li processerà automaticamente ogni 5 secondi!
-# Nessuna chiamata API necessaria 🎉
-
-# 4. Fai domande su tutti i documenti caricati
-curl "http://localhost:8092/api/query?question=Riassumi%20tutti%20i%20documenti"
-
-# 5. Verifica i file processati
-ls -la ~/rag-processed/
-```
-
-## 🐫 Perché Apache Camel per il Polling?
-
-Apache Camel è la scelta ideale per il polling di directory perché:
-
-✅ **Enterprise Integration Pattern** - Pattern consolidato per integrazione
-✅ **Configurazione Dichiarativa** - Route chiare e manutenibili
-✅ **Gestione Errori Integrata** - Error handling robusto out-of-the-box
-✅ **Filtering Avanzato** - Regex, pattern matching, filtri custom
-✅ **Scalabilità** - Thread pool configurabile per processing parallelo
-✅ **Movimentazione File** - Move, copy, delete automatici dopo processing
-✅ **Monitoring** - Metriche e health checks integrati
-✅ **Zero Boilerplate** - Meno codice rispetto a WatchService o Scheduler custom
-
-### Alternative Considerate
-
-| Soluzione | Pro | Contro |
-|-----------|-----|--------|
-| **Apache Camel** ✅ | Robusto, testato, feature-rich | Dipendenza extra |
-| Java WatchService | Nativo, reattivo | Codice boilerplate, meno robusto |
-| @Scheduled Spring | Semplice | Meno funzionalità (no move/error handling) |
-| Quartz Scheduler | Potente | Overkill per file polling |
-
-**Camel** offre il miglior rapporto funzionalità/complessità per questo use case.
-
-## ⚙️ Configurazione
-
-Modifica `src/main/resources/application.yml`:
+`src/main/resources/application.yml`:
 
 ```yaml
-# Porta dell'applicazione
 server:
   port: 8092
 
-# Qdrant
+# Qdrant Vector Database
 qdrant:
   host: localhost
   port: 6334
@@ -302,90 +266,60 @@ qdrant:
 
 # RAG Settings
 rag:
-  # Numero di chunks da recuperare per ogni query
-  # Valori consigliati:
-  #  5-10:  Veloce, buono per documenti semplici
-  #  10-20: Più contesto, meglio per domande complesse
-  #  20+:   Massimo contesto, ma più lento e più token usati
-  top-k: 10
+  top-k: 15          # Chunks da recuperare per query
+  chunk-size: 300    # Dimensione chunks
+  chunk-overlap: 50  # Overlap tra chunks
 
-# Gemini
-gemini:
-  api-key: ${GEMINI_API_KEY}
-  model: gemini-2.5-flash  # o gemini-2.0-flash-exp, gemini-1.5-flash, gemini-1.5-pro
-  
-  # Temperature: controlla la creatività delle risposte
-  #   0.0-0.3: Deterministico, preciso, ideale per FAQ/documentazione
-  #   0.3-0.7: Bilanciato, buono per RAG generale
-  #   0.7-1.0: Creativo, può aggiungere dettagli non nel contesto
+# ============ LLM CONFIGURATION ============
+llm:
+  # Provider: gemini | ollama | openrouter
+  provider: ${LLM_PROVIDER:gemini}
   temperature: 0.3
-  
-  # Max tokens: lunghezza massima della risposta
-  #   512-1024:  Risposte brevi e concise
-  #   1024-2048: Risposte medie (consigliato per RAG)
-  #   2048-4096: Risposte lunghe e dettagliate
   max-tokens: 1024
 
-# Limiti upload
-spring:
-  servlet:
-    multipart:
-      max-file-size: 100MB
-      max-request-size: 100MB
+# Google Gemini
+gemini:
+  api-key: ${GEMINI_API_KEY:}
+  model: gemini-2.5-flash
+
+# Ollama (Local)
+ollama:
+  base-url: ${OLLAMA_BASE_URL:http://localhost:11434}
+  model: ${OLLAMA_MODEL:llama3.2}
+  timeout: 120
+
+# OpenRouter
+openrouter:
+  api-key: ${OPENROUTER_API_KEY:}
+  model: ${OPENROUTER_MODEL:anthropic/claude-3-haiku}
+  app-name: RAG-System
+
+# File Polling
+file-polling:
+  enabled: true
+  input-directory: rag-input
+  processed-directory: rag-processed
+  error-directory: rag-errors
+  delay: 5000
+  max-concurrent: 3
 ```
 
-### 🎛️ Tuning dei Parametri
+### 🎛️ Tuning Parametri
 
 **Temperature:**
-- **Bassa (0.0-0.3)**: Risposte precise e deterministiche. Usa quando serve precisione assoluta (FAQ, documentazione tecnica, contratti).
-- **Media (0.3-0.7)**: Bilanciato. Buono per la maggior parte dei casi RAG.
-- **Alta (0.7-1.0)**: Creativo, può elaborare oltre il contesto. Rischio di "allucinazioni".
+- `0.0-0.3`: Deterministico, preciso (FAQ, documentazione)
+- `0.3-0.7`: Bilanciato (uso generale RAG)
+- `0.7-1.0`: Creativo (rischio allucinazioni)
 
-**Max Tokens:**
-- Dipende dalla complessità delle risposte attese
-- Troppo basso → risposte troncate
-- Troppo alto → più lento e costoso (ma Gemini è gratuito!)
+**Top-K:**
+- `5-10`: Veloce, documenti semplici
+- `10-20`: Più contesto, domande complesse
+- `20+`: Massimo contesto, più lento
 
-**Top-K (Chunks):**
-- Più chunks = più contesto = risposte migliori MA più lento
-- Meno chunks = più veloce MA risposte meno complete
-- Dipende dalla dimensione dei tuoi documenti e dalla complessità delle domande
-```
-
-## 🔧 Modelli Gemini Disponibili
-
-| Modello | Descrizione | Costo |
-|---------|-------------|-------|
-| `gemini-2.0-flash-exp` | **Più recente**, veloce e intelligente | GRATIS |
-| `gemini-1.5-flash` | Veloce, ottimo per la maggior parte dei casi | GRATIS |
-| `gemini-1.5-pro` | Più capace, per task complessi | GRATIS |
-
-## 🗄️ Gestione Qdrant
-
-### Interfaccia Web
-
-Apri il browser su: **http://localhost:6333/dashboard**
-
-### Operazioni CLI
-
-```bash
-# Vedi i log
-docker-compose logs qdrant
-
-# Riavvia Qdrant
-docker-compose restart qdrant
-
-# Ferma tutto
-docker-compose down
-
-# Cancella tutti i dati (⚠️ attenzione!)
-docker-compose down -v
-rm -rf qdrant_storage/
-```
-
-## 📊 Come Funziona (Architettura)
+## 📊 Architettura
 
 ```
+Upload Flow:
 ┌─────────────┐
 │   Upload    │
 │  PDF/Word   │
@@ -393,57 +327,49 @@ rm -rf qdrant_storage/
        │
        ▼
 ┌─────────────────┐
-│ Apache Tika     │  ← Estrae il testo
-│ (Document       │
-│  Parser)        │
+│ Apache Tika     │  ← Estrae testo
 └──────┬──────────┘
        │
        ▼
 ┌─────────────────┐
-│  Text Splitter  │  ← Divide in chunks (500 caratteri)
+│  Text Splitter  │  ← Divide in chunks
 └──────┬──────────┘
        │
        ▼
 ┌─────────────────┐
-│ AllMiniLmL6V2   │  ← Genera embeddings (vettori)
-│ (Embedding      │     LOCALE - niente API!
-│  Model)         │
+│ AllMiniLmL6V2   │  ← Embeddings (LOCALE)
 └──────┬──────────┘
        │
        ▼
 ┌─────────────────┐
-│    Qdrant       │  ← Salva vettori + testo
-│  (Vector DB)    │
+│    Qdrant       │  ← Salva vettori
 └─────────────────┘
 
 
 Query Flow:
-───────────
-
 ┌─────────────┐
 │  Domanda    │
 └──────┬──────┘
        │
        ▼
 ┌─────────────────┐
-│ Embedding       │  ← Trasforma domanda in vettore
-│ Model           │
+│ Embedding Model │  ← Vettorizza domanda
 └──────┬──────────┘
        │
        ▼
 ┌─────────────────┐
-│ Qdrant Search   │  ← Cerca vettori simili (Top 5)
+│ Qdrant Search   │  ← Cerca simili
 └──────┬──────────┘
        │
        ▼
 ┌─────────────────┐
-│ Build Prompt    │  ← Combina chunks + domanda
+│ Build Prompt    │  ← Combina chunks
 └──────┬──────────┘
        │
        ▼
 ┌─────────────────┐
-│ Gemini 2.0      │  ← Genera risposta intelligente
-│ Flash           │
+│   LLM Provider  │  ← Gemini/Ollama/
+│                 │     OpenRouter
 └──────┬──────────┘
        │
        ▼
@@ -455,85 +381,84 @@ Query Flow:
 
 ## 🐛 Troubleshooting
 
-### Errore: "Qdrant connection refused"
-
+### Qdrant connection refused
 ```bash
-# Verifica che Qdrant sia attivo
 docker ps | grep qdrant
-
-# Se non è attivo, avvialo
 docker-compose up -d
-
-# Controlla i log
 docker-compose logs qdrant
 ```
 
-### Errore: "Invalid API key"
-
+### Invalid API key
 ```bash
-# Verifica che l'API key sia impostata
 echo $GEMINI_API_KEY
-
-# Se vuota, impostala
-export GEMINI_API_KEY=la_tua_api_key
+# oppure
+echo $OPENROUTER_API_KEY
 ```
 
-### Errore: "File too large"
+### Ollama non risponde
+```bash
+ollama list           # Verifica modelli
+ollama serve          # Avvia server
+ollama pull llama3.2  # Scarica modello
+```
 
-Modifica `application.yml`:
-
+### File too large
 ```yaml
 spring:
   servlet:
     multipart:
-      max-file-size: 200MB  # Aumenta il limite
+      max-file-size: 200MB
       max-request-size: 200MB
 ```
 
-### Errore di compilazione
-
+### Errore compilazione
 ```bash
-# Pulisci e ricompila
 mvn clean package -DskipTests -U
 ```
 
 ## 📈 Performance
 
-- **Embedding Model**: AllMiniLmL6V2 (locale, 384 dimensioni)
-  - ⚡ Veloce: ~1000 chunks/secondo
-  - 💾 Leggero: ~100MB RAM
-  - 🆓 Gratis: nessuna API call
+| Componente | Metrica | Note |
+|------------|---------|------|
+| **Embedding** | ~1000 chunks/sec | Locale, gratuito |
+| **Gemini** | ~1-2 sec latenza | Gratuito |
+| **Ollama** | Dipende da hardware | Gratuito |
+| **OpenRouter** | ~1-3 sec latenza | Pay-per-use |
+| **Qdrant** | <100ms ricerca | 100k vettori |
 
-- **Gemini 2.0 Flash**:
-  - ⚡ Latenza: ~1-2 secondi
-  - 💰 Costi: GRATIS fino a 1500 req/giorno
-  - 🎯 Qualità: Eccellente per RAG
+## 🗄️ Gestione Qdrant
 
-- **Qdrant**:
-  - 🚀 Ricerca: <100ms per 100k vettori
-  - 💾 Storage: Efficiente e persistente
+**Dashboard Web:** http://localhost:6333/dashboard
+
+```bash
+# Log
+docker-compose logs qdrant
+
+# Riavvia
+docker-compose restart qdrant
+
+# Stop
+docker-compose down
+
+# Reset completo
+docker-compose down -v
+rm -rf qdrant_storage/
+```
 
 ## 🔐 Sicurezza
 
-- ✅ API key tramite variabile d'ambiente
-- ✅ Nessuna API key hardcoded nel codice
-- ✅ Validazione input sui file
-- ⚠️ In produzione aggiungi autenticazione (OAuth2, JWT)
+- ✅ API keys via variabili d'ambiente
+- ✅ Nessuna key hardcoded
+- ✅ Validazione file input
+- ⚠️ In produzione: aggiungere autenticazione (OAuth2, JWT)
 
 ## 📝 Note
 
-- Gli embeddings sono generati **localmente** (gratuito, nessuna API call)
-- Solo le query a Gemini richiedono API calls
-- I dati in Qdrant persistono anche dopo il riavvio
-- Il file temporaneo viene cancellato dopo il processamento
-
-## 🆘 Supporto
-
-Per problemi o domande:
-1. Controlla i log: `docker-compose logs` e log dell'applicazione
-2. Verifica la configurazione in `application.yml`
-3. Prova con un file di test piccolo (< 1MB)
+- Embeddings generati **localmente** (gratuito)
+- Solo le query LLM usano API esterne (o Ollama locale)
+- Dati Qdrant persistenti
+- File temporanei cancellati dopo processing
 
 ## 📜 Licenza
 
-Questo progetto è fornito "as-is" per scopi educativi e di sviluppo.
+Progetto fornito "as-is" per scopi educativi e di sviluppo.

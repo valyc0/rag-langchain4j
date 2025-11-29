@@ -53,6 +53,20 @@
             <version>${langchain4j.version}</version>
         </dependency>
 
+        <!-- LangChain4j Ollama Integration (per modelli locali) -->
+        <dependency>
+            <groupId>dev.langchain4j</groupId>
+            <artifactId>langchain4j-ollama</artifactId>
+            <version>${langchain4j.version}</version>
+        </dependency>
+
+        <!-- LangChain4j OpenAI Integration (per OpenRouter) -->
+        <dependency>
+            <groupId>dev.langchain4j</groupId>
+            <artifactId>langchain4j-open-ai</artifactId>
+            <version>${langchain4j.version}</version>
+        </dependency>
+
         <!-- LangChain4j Document Parser (Apache Tika) -->
         <dependency>
             <groupId>dev.langchain4j</groupId>

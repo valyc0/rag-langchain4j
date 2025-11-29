@@ -62,6 +62,18 @@ file-polling:
   # Numero di file da processare in parallelo
   max-concurrent: 3
 
+# ============================================
+# CONFIGURAZIONE LLM (Language Model)
+# ============================================
+# Provider supportati: gemini, ollama, openrouter
+llm:
+  # Provider da utilizzare: gemini | ollama | openrouter
+  provider: ${LLM_PROVIDER:openrouter}
+  
+  # Parametri comuni a tutti i provider
+  temperature: 0.3
+  max-tokens: 1024
+
 # Configurazione Google Gemini
 gemini:
   # API KEY di Google AI Studio (https://aistudio.google.com/app/apikey)
@@ -72,21 +84,44 @@ gemini:
   location: us-central1
   
   # Modello da usare
-  # Opzioni: gemini-2.0-flash-exp, gemini-1.5-flash, gemini-1.5-pro
+  # Opzioni: gemini-2.0-flash-exp, gemini-1.5-flash, gemini-1.5-pro, gemini-2.5-flash
   model: gemini-2.5-flash
+
+# Configurazione Ollama (modelli locali)
+ollama:
+  # URL del server Ollama (default: localhost:11434)
+  base-url: ${OLLAMA_BASE_URL:http://localhost:11434}
   
-  # Parametri di generazione
-  # Temperature: controlla la creatività delle risposte
-  #   0.0-0.3: Deterministico, preciso, ideale per FAQ/documentazione
-  #   0.3-0.7: Bilanciato, buono per RAG generale
-  #   0.7-1.0: Creativo, può aggiungere dettagli non nel contesto
-  temperature: 0.3
+  # Modello da usare (deve essere già scaricato con: ollama pull <modello>)
+  # Opzioni popolari: llama3.2, llama3.1, mistral, mixtral, codellama, phi3, qwen2
+  model: ${OLLAMA_MODEL:llama3.2}
   
-  # Max tokens: lunghezza massima della risposta
-  #   512-1024:  Risposte brevi e concise
-  #   1024-2048: Risposte medie (consigliato per RAG)
-  #   2048-4096: Risposte lunghe e dettagliate
-  max-tokens: 1024
+  # Timeout in secondi (i modelli locali possono essere lenti)
+  timeout: 120
+
+# Configurazione OpenRouter (gateway multi-LLM)
+openrouter:
+  # API KEY di OpenRouter (https://openrouter.ai/keys)
+  api-key: ${OPENROUTER_API_KEY:your_openrouter_key_here}
+  
+  # Modello da usare (vedi https://openrouter.ai/models per lista completa)
+  # Esempi:
+  #   - openai/gpt-4-turbo
+  #   - openai/gpt-3.5-turbo
+  #   - anthropic/claude-3-opus
+  #   - anthropic/claude-3-sonnet
+  #   - anthropic/claude-3-haiku
+  #   - google/gemini-pro
+  #   - meta-llama/llama-3-70b-instruct
+  #   - mistralai/mixtral-8x7b-instruct
+  #   - qwen/qwen-72b-chat
+  model: ${OPENROUTER_MODEL:x-ai/grok-4.1-fast:free}
+  
+  # Nome della tua applicazione (opzionale, per tracking)
+  app-name: ${OPENROUTER_APP_NAME:RAG-System}
+  
+  # Sito/URL della tua applicazione (opzionale)
+  app-url: ${OPENROUTER_APP_URL:}
 
 # Logging
 logging:

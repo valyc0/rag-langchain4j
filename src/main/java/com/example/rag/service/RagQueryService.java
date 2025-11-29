@@ -34,11 +34,27 @@ public class RagQueryService {
     @Value("${rag.top-k:10}")
     private int topK; // Numero di chunks da recuperare (configurabile)
 
+    // Configurazione LLM per logging
+    @Value("${llm.provider:gemini}")
+    private String llmProvider;
+
+    @Value("${gemini.model:gemini-2.5-flash}")
+    private String geminiModel;
+
+    @Value("${ollama.model:llama3.2}")
+    private String ollamaModel;
+
+    @Value("${openrouter.model:anthropic/claude-3-haiku}")
+    private String openRouterModel;
+
     /**
      * Esegue una query RAG completa
      */
     public Map<String, Object> query(String question) {
+        // Log del modello LLM in uso
+        String currentModel = getCurrentModelName();
         log.info("❓ Query ricevuta: {}", question);
+        log.info("🤖 LLM Provider: {} | Modello: {}", llmProvider.toUpperCase(), currentModel);
         
         // 1. Genera embedding della domanda
         Embedding questionEmbedding = embeddingModel.embed(question).content();
@@ -79,14 +95,17 @@ public class RagQueryService {
         String prompt = buildPrompt(context, question);
         log.debug("📝 Prompt costruito: {} caratteri", prompt.length());
         
-        // 5. Chiedi a Gemini
+        // 5. Chiedi all'LLM
         String answer;
         try {
+            long startTime = System.currentTimeMillis();
             answer = chatLanguageModel.generate(prompt);
-            log.info("✅ Risposta generata da Gemini: {} caratteri", answer.length());
+            long duration = System.currentTimeMillis() - startTime;
+            log.info("✅ Risposta generata da {} ({}) in {}ms: {} caratteri", 
+                llmProvider.toUpperCase(), currentModel, duration, answer.length());
         } catch (Exception e) {
-            log.error("❌ Errore chiamata Gemini", e);
-            answer = "Errore nella generazione della risposta. Il prompt potrebbe essere troppo lungo o ci sono problemi con l'API Gemini.";
+            log.error("❌ Errore chiamata LLM ({})", llmProvider, e);
+            answer = "Errore nella generazione della risposta. Il prompt potrebbe essere troppo lungo o ci sono problemi con l'API " + llmProvider + ".";
         }
         
         // 6. Prepara le fonti (sources) con score
@@ -138,5 +157,17 @@ public class RagQueryService {
     public String querySimple(String question) {
         Map<String, Object> result = query(question);
         return (String) result.get("answer");
+    }
+
+    /**
+     * Restituisce il nome del modello corrente basato sul provider configurato
+     */
+    private String getCurrentModelName() {
+        return switch (llmProvider.toLowerCase()) {
+            case "gemini" -> geminiModel;
+            case "ollama" -> ollamaModel;
+            case "openrouter" -> openRouterModel;
+            default -> "unknown";
+        };
     }
 }
