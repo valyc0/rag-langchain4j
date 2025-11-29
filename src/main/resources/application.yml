@@ -68,7 +68,7 @@ file-polling:
 # Provider supportati: gemini, ollama, openrouter
 llm:
   # Provider da utilizzare: gemini | ollama | openrouter
-  provider: ${LLM_PROVIDER:ollama}
+  provider: ${LLM_PROVIDER:gemini}
   
   # Parametri comuni a tutti i provider
   temperature: 0.3
