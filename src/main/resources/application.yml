@@ -25,7 +25,7 @@ rag:
   #  5-10:  Veloce, buono per documenti semplici
   #  10-20: Più contesto, meglio per domande complesse
   #  20+:   Massimo contesto, ma più lento e più token usati
-  top-k: 15
+  top-k: 5
   
   # Dimensione dei chunks per la suddivisione del testo
   # Valori più bassi = match più precisi ma più chunks totali
@@ -68,7 +68,7 @@ file-polling:
 # Provider supportati: gemini, ollama, openrouter
 llm:
   # Provider da utilizzare: gemini | ollama | openrouter
-  provider: ${LLM_PROVIDER:openrouter}
+  provider: ${LLM_PROVIDER:ollama}
   
   # Parametri comuni a tutti i provider
   temperature: 0.3
@@ -93,11 +93,11 @@ ollama:
   base-url: ${OLLAMA_BASE_URL:http://localhost:11434}
   
   # Modello da usare (deve essere già scaricato con: ollama pull <modello>)
-  # Opzioni popolari: llama3.2, llama3.1, mistral, mixtral, codellama, phi3, qwen2
-  model: ${OLLAMA_MODEL:llama3.2}
+  # Opzioni popolari: llama3.2:1b, llama3.2, llama3.1, mistral, mixtral, codellama, phi3, qwen2
+  model: ${OLLAMA_MODEL:llama3.2:1b}
   
   # Timeout in secondi (i modelli locali possono essere lenti)
-  timeout: 120
+  timeout: 300
 
 # Configurazione OpenRouter (gateway multi-LLM)
 openrouter:

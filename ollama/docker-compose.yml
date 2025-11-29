@@ -1,0 +1,42 @@
+version: '3.8'
+
+services:
+  ollama:
+    image: ollama/ollama:latest
+    container_name: ollama
+    ports:
+      - "11434:11434"
+    volumes:
+      - ollama_data:/root/.ollama
+    restart: unless-stopped
+    environment:
+      - OLLAMA_HOST=0.0.0.0
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:11434/api/tags"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    command: serve
+
+  # Service per scaricare automaticamente il modello llama3.2:1b
+  ollama-setup:
+    image: ollama/ollama:latest
+    container_name: ollama-setup
+    depends_on:
+      ollama:
+        condition: service_healthy
+    volumes:
+      - ollama_data:/root/.ollama
+    entrypoint: ["/bin/sh", "-c"]
+    command:
+      - |
+        echo "🦙 Attendo che Ollama sia pronto..."
+        sleep 5
+        echo "📥 Scarico modello llama3.2:1b..."
+        ollama pull llama3.2:1b
+        echo "✅ Modello llama3.2:1b scaricato con successo!"
+    restart: "no"
+
+volumes:
+  ollama_data:
+    driver: local
