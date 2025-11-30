@@ -4,6 +4,8 @@ server:
 spring:
   application:
     name: rag-system
+  profiles:
+    active: gemini
   servlet:
     multipart:
       enabled: true

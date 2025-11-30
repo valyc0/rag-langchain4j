@@ -1,0 +1,93 @@
+# ============================================
+# Profilo OLLAMA - Configurazione ottimizzata per llama3.2:1b locale
+# ============================================
+# Attiva con: --spring.profiles.active=ollama
+# oppure: export SPRING_PROFILES_ACTIVE=ollama
+
+server:
+  port: 8092
+
+spring:
+  application:
+    name: rag-system-ollama
+  servlet:
+    multipart:
+      enabled: true
+      max-file-size: 100MB
+      max-request-size: 100MB
+      file-size-threshold: 2MB
+
+# Configurazione Qdrant
+qdrant:
+  host: localhost
+  port: 6334
+  collection-name: documenti
+  use-tls: false
+
+# Configurazione RAG ottimizzata per modelli piccoli come llama3.2:1b
+rag:
+  # Chunks ridotti per modelli piccoli (context window limitato)
+  top-k: 10
+  
+  # Chunks più piccoli per modelli leggeri
+  chunk-size: 250
+  chunk-overlap: 40
+
+# Configurazione File Polling
+file-polling:
+  enabled: true
+  input-directory: rag-input
+  processed-directory: rag-processed
+  error-directory: rag-errors
+  file-pattern: .*\\.(pdf|doc|docx|xls|xlsx|ppt|pptx|txt|html|xml)$
+  delay: 5000
+  initial-delay: 1000
+  max-concurrent: 2
+
+# ============================================
+# CONFIGURAZIONE LLM - OLLAMA
+# ============================================
+llm:
+  provider: ollama
+  
+  # Parametri ottimizzati per llama3.2:1b
+  # Temperature più alta per modelli piccoli
+  temperature: 0.5
+  
+  # Token ridotti per modelli piccoli (llama3.2:1b ha context window di 2048)
+  max-tokens: 512
+
+# Configurazione Ollama
+ollama:
+  # URL del server Ollama locale
+  base-url: http://localhost:11434
+  
+  # Modello llama3.2:1b (1.3B parametri, veloce e leggero)
+  model: llama3.2:1b
+  
+  # Timeout generoso per primo avvio o risposte complesse
+  timeout: 300
+  
+  # Parametri specifici per llama3.2:1b (opzionali)
+  # num-predict: 512          # Max token da generare
+  # top-k: 40                 # Top-K sampling
+  # top-p: 0.9                # Nucleus sampling
+  # repeat-penalty: 1.1       # Penalità ripetizioni
+  # seed: -1                  # Seed per riproducibilità (-1 = random)
+
+# Logging dettagliato per debug
+logging:
+  level:
+    root: INFO
+    com.example.rag: DEBUG
+    dev.langchain4j: DEBUG
+    dev.langchain4j.model.ollama: TRACE
+  pattern:
+    console: "%d{HH:mm:ss.SSS} [%thread] %-5level %logger{36} - %msg%n"
+
+# Note:
+# - llama3.2:1b è ottimo per: risposte rapide, riassunti, Q&A semplici
+# - Limiti: context window 2048 token, capacità ragionamento limitate
+# - Per compiti complessi considera: llama3.2 (3B), mistral (7B), o llama3.1 (8B)
+# - Avvia Ollama prima: cd ollama && ./start.sh
+# - Verifica modello installato: docker exec ollama ollama list
