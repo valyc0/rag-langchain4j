@@ -25,7 +25,7 @@ rag:
   #  5-10:  Veloce, buono per documenti semplici
   #  10-20: Più contesto, meglio per domande complesse
   #  20+:   Massimo contesto, ma più lento e più token usati
-  top-k: 5
+  top-k: 15
   
   # Dimensione dei chunks per la suddivisione del testo
   # Valori più bassi = match più precisi ma più chunks totali

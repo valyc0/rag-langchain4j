@@ -160,8 +160,14 @@ public class QueryView extends VerticalLayout {
         sendButton.setEnabled(false);
         messageField.setEnabled(false);
 
+        // Capture UI for async access
+        var ui = getUI().orElse(null);
+        if (ui == null) {
+            return;
+        }
+
         // Esegui query in background
-        getUI().ifPresent(ui -> {
+        new Thread(() -> {
             try {
                 QueryResponse response = ragApiService.query(question.trim());
                 
@@ -200,7 +206,7 @@ public class QueryView extends VerticalLayout {
                     scrollToBottom();
                 });
             }
-        });
+        }).start();
     }
 
     private Div createUserBubble(String message) {
