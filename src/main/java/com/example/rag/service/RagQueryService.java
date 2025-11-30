@@ -170,4 +170,11 @@ public class RagQueryService {
             default -> "unknown";
         };
     }
+
+    /**
+     * Restituisce informazioni sul modello LLM corrente
+     */
+    public String getCurrentModelInfo() {
+        return llmProvider + "/" + getCurrentModelName();
+    }
 }

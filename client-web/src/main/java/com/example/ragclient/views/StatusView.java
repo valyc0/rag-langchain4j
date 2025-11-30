@@ -90,7 +90,9 @@ public class StatusView extends VerticalLayout {
         
         String baseUrl = "http://localhost:8092"; // Could be from config
         Paragraph urlInfo = new Paragraph("🌐 Backend URL: " + baseUrl);
-        connectionInfo.add(urlInfo);
+        Paragraph modelInfo = new Paragraph("🤖 LLM Model: Loading...");
+        modelInfo.setId("model-info");
+        connectionInfo.add(urlInfo, modelInfo);
         add(connectionInfo);
 
         // Initial check
@@ -149,6 +151,13 @@ public class StatusView extends VerticalLayout {
             HealthResponse queryHealth = ragApiService.getQueryHealth();
             updateStatusCard(queryApiStatus, "Query API", 
                 queryHealth.getStatus(), queryHealth.getStatus().equals("UP") ? "✅" : "❌");
+            
+            // Update model info
+            if (queryHealth.getModel() != null) {
+                getElement().executeJs(
+                    "document.getElementById('model-info').textContent = '🤖 LLM Model: " + queryHealth.getModel() + "'"
+                );
+            }
 
             // Update overall status
             boolean isHealthy = docHealth.getStatus().equals("UP") && 

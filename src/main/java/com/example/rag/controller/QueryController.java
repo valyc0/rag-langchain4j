@@ -97,7 +97,8 @@ public class QueryController {
     public ResponseEntity<Map<String, String>> health() {
         return ResponseEntity.ok(Map.of(
             "status", "UP",
-            "service", "RAG Query API"
+            "service", "RAG Query API",
+            "model", ragQueryService.getCurrentModelInfo()
         ));
     }
 }
