@@ -5,11 +5,11 @@ echo ""
 
 # Ferma eventuali container esistenti
 echo "🧹 Pulizia container esistenti..."
-docker-compose down > /dev/null 2>&1
+docker compose down > /dev/null 2>&1
 
 # Avvia Ollama
 echo "1️⃣  Avvio container Ollama..."
-docker-compose up -d
+docker compose up -d
 
 echo ""
 echo "⏳ Attendo che Ollama sia pronto (max 30 secondi)..."
@@ -23,7 +23,7 @@ echo ""
 
 if [ $COUNTER -eq 30 ]; then
     echo "❌ Timeout: Ollama non risponde dopo 30 secondi"
-    echo "   Controlla i log con: docker-compose logs ollama"
+    echo "   Controlla i log con: docker compose logs ollama"
     exit 1
 fi
 
@@ -59,9 +59,9 @@ echo ""
 echo "🔗 Ollama è in esecuzione su: http://localhost:11434"
 echo ""
 echo "Comandi utili:"
-echo "  - Verifica stato: docker-compose ps"
-echo "  - Log: docker-compose logs -f ollama"
-echo "  - Stop: docker-compose down"
+echo "  - Verifica stato: docker compose ps"
+echo "  - Log: docker compose logs -f ollama"
+echo "  - Stop: docker compose down"
 echo "  - Scarica altro modello: docker exec ollama ollama pull <nome-modello>"
 echo ""
 echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
