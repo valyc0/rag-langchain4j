@@ -169,25 +169,43 @@ public class QueryView extends VerticalLayout {
         // Esegui query in background
         new Thread(() -> {
             try {
+                log.info("🔍 Invio query al backend: {}", question.trim());
                 QueryResponse response = ragApiService.query(question.trim());
+                log.info("✅ Risposta ricevuta: {} caratteri", response != null && response.getAnswer() != null ? response.getAnswer().length() : 0);
                 
                 ui.access(() -> {
-                    // Rimuovi indicatore caricamento
-                    chatContainer.remove(loadingBubble);
-                    
-                    // Aggiungi risposta
-                    Div assistantBubble = createAssistantBubble(response.getAnswer(), response);
-                    chatContainer.add(assistantBubble);
-                    
-                    // Salva nella cronologia
-                    chatHistory.add(new ChatMessage("assistant", response.getAnswer(), LocalDateTime.now(), response));
-                    
-                    // Riabilita input
-                    sendButton.setEnabled(true);
-                    messageField.setEnabled(true);
-                    messageField.focus();
-                    
-                    scrollToBottom();
+                    try {
+                        // Rimuovi indicatore caricamento
+                        chatContainer.remove(loadingBubble);
+                        log.debug("✅ Loading bubble rimosso");
+                        
+                        // Verifica risposta
+                        if (response == null || response.getAnswer() == null || response.getAnswer().trim().isEmpty()) {
+                            log.warn("⚠️ Risposta vuota o null dal backend");
+                            Div errorBubble = createAssistantBubble(
+                                "⚠️ Il sistema non ha generato una risposta. Riprova.", null);
+                            chatContainer.add(errorBubble);
+                        } else {
+                            // Aggiungi risposta
+                            log.info("📝 Creazione bubble con risposta");
+                            Div assistantBubble = createAssistantBubble(response.getAnswer(), response);
+                            chatContainer.add(assistantBubble);
+                            log.info("✅ Bubble aggiunto al container");
+                            
+                            // Salva nella cronologia
+                            chatHistory.add(new ChatMessage("assistant", response.getAnswer(), LocalDateTime.now(), response));
+                        }
+                        
+                        // Riabilita input
+                        sendButton.setEnabled(true);
+                        messageField.setEnabled(true);
+                        messageField.focus();
+                        
+                        scrollToBottom();
+                        ui.push(); // Forza l'aggiornamento UI
+                    } catch (Exception uiEx) {
+                        log.error("❌ Errore durante l'aggiornamento UI", uiEx);
+                    }
                 });
                 
             } catch (Exception e) {
@@ -236,6 +254,10 @@ public class QueryView extends VerticalLayout {
     }
 
     private Div createAssistantBubble(String message, QueryResponse response) {
+        log.debug("🎨 Creazione assistant bubble - Messaggio: {} chars, Response: {}", 
+                  message != null ? message.length() : 0, 
+                  response != null ? "presente" : "null");
+        
         VerticalLayout bubbleContent = new VerticalLayout();
         bubbleContent.setPadding(false);
         bubbleContent.setSpacing(true);

@@ -5,7 +5,7 @@ echo ""
 
 # 1. Avvia Qdrant
 echo "1️⃣  Avvio Qdrant..."
-docker-compose up -d
+docker compose up -d
 
 # 2. Attendi che Qdrant sia pronto
 echo "⏳ Attendo 5 secondi..."
