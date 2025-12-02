@@ -462,3 +462,5 @@ rm -rf qdrant_storage/
 ## 📜 Licenza
 
 Progetto fornito "as-is" per scopi educativi e di sviluppo.
+
+esempi pdf: https://www.profwaltergalli.it/biblioteca/libri-in-formato-pdf/
