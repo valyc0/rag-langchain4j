@@ -3,6 +3,7 @@
 Sistema completo di **Retrieval-Augmented Generation (RAG)** per interrogare documenti usando:
 - 🗄️ **Qdrant** - Vector database per gli embeddings
 - 🤖 **Multi-LLM Support** - Google Gemini, Ollama (locale), OpenRouter
+- � **Embedding Configurabile** - AllMiniLmL6V2 (locale) oppure Ollama (multilingue/italiano)
 - 📄 **Apache Tika** - Estrazione testo da PDF, Word, Excel, ecc.
 - ⚡ **LangChain4j** - Orchestrazione RAG
 - 🐫 **Apache Camel** - Polling automatico directory
@@ -13,7 +14,39 @@ Sistema completo di **Retrieval-Augmented Generation (RAG)** per interrogare doc
 1. **Upload Documenti**: Carica PDF, Word, Excel, PowerPoint, TXT, HTML via API REST
 2. **Auto-Polling Directory**: Monitora automaticamente una directory e processa i nuovi file
 3. **Indicizzazione**: Estrae il testo, lo divide in chunks, genera embeddings e salva in Qdrant
-4. **Query Intelligenti**: Fai domande sui documenti e ricevi risposte contestualizzate
+4. **Query Intelligenti**: Fai domande sui documenti e ricevi risposte contestualizzate con score di rilevanza
+
+## 🔤 Embedding Model (Configurabile)
+
+Il modello di embedding è **separato** dal provider LLM e si configura con `EMBEDDING_PROVIDER`:
+
+| Provider | Modello | Dimensioni | Caratteristiche |
+|----------|---------|-----------|-----------------|
+| `local` (default) | AllMiniLmL6V2 | 384 | Offline, gratuito, ottimizzato per inglese |
+| `ollama` | nomic-embed-text | 768 | Multilingue, ottimo italiano, consigliato |
+| `ollama` | bge-m3 | 1024 | Migliore qualità multilingue, più lento |
+| `ollama` | mxbai-embed-large | 1024 | Ottimo per europeo/inglese |
+
+> ⚠️ **Importante**: ogni modello ha dimensioni vettore diverse. Se cambi modello, devi svuotare la collection Qdrant e re-indicizzare tutti i documenti.
+
+### Configurazione Embedding
+
+```bash
+# Locale (default, inglese)
+export EMBEDDING_PROVIDER=local
+
+# Ollama multilingue (consigliato per doc italiani)
+export EMBEDDING_PROVIDER=ollama
+export EMBEDDING_OLLAMA_MODEL=nomic-embed-text  # 768 dim
+export EMBEDDING_DIMENSION=768
+
+# Installazione modello su Ollama:
+docker exec ollama ollama pull nomic-embed-text
+# oppure per qualità superiore:
+docker exec ollama ollama pull bge-m3
+export EMBEDDING_OLLAMA_MODEL=bge-m3
+export EMBEDDING_DIMENSION=1024
+```
 
 ## 🤖 Provider LLM Supportati
 
@@ -83,19 +116,27 @@ Lista completa: [OpenRouter Models](https://openrouter.ai/models)
 ### 🦙 Setup Ollama
 
 ```bash
-# 1. Installa Ollama
-curl -fsSL https://ollama.ai/install.sh | sh
+# Con Docker (usa docker-compose in ollama/)
+cd ollama && docker compose up -d
 
-# 2. Scarica un modello
-ollama pull llama3.2
+# Scarica il modello LLM
+docker exec ollama ollama pull llama3.2:1b   # leggero, veloce
+docker exec ollama ollama pull llama3.2       # 3B, bilanciato
 
-# 3. Verifica che funzioni
-ollama run llama3.2 "Ciao!"
+# Scarica il modello embedding multilingue (consigliato per italiano)
+docker exec ollama ollama pull nomic-embed-text  # 768 dim
+# oppure alta qualità:
+docker exec ollama ollama pull bge-m3            # 1024 dim
 
-# 4. Configura l'applicazione
-export LLM_PROVIDER=ollama
-export OLLAMA_MODEL=llama3.2
+# Configura l'applicazione (usa il profilo ollama che imposta già tutto)
+mvn spring-boot:run -Dspring-boot.run.profiles=ollama
 ```
+
+Il profilo `ollama` preimposta automaticamente:
+- `llm.provider=ollama` + `ollama.model=llama3.2:1b`
+- `embedding.provider=ollama` + `embedding.ollama.model=nomic-embed-text` (768 dim)
+- `embedding.dimension=768`
+- `chunk-size=300`, `top-k=10`, `min-score=0.40` (ottimizzati per modelli piccoli)
 
 ### 🔑 Ottenere API Keys
 
@@ -158,18 +199,28 @@ cp documento.pdf rag-input/
 
 ## 🚀 Quick Start
 
-### 1. Configura il Provider LLM
+### 1. Configura il Provider LLM e Embedding
 
 ```bash
-# Opzione A: Gemini (consigliato per iniziare)
+# ===== Opzione A: Gemini + embedding locale (inglese) =====
 export LLM_PROVIDER=gemini
 export GEMINI_API_KEY=la_tua_api_key
+# embedding local è il default (AllMiniLmL6V2, 384 dim)
 
-# Opzione B: Ollama (nessuna API key necessaria)
-export LLM_PROVIDER=ollama
-ollama pull llama3.2
+# ===== Opzione B: Ollama + embedding multilingue (italiano) ===== (CONSIGLIATO)
+# usa direttamente il profilo Spring: -Dspring-boot.run.profiles=ollama
+# installa prima i modelli:
+docker exec ollama ollama pull llama3.2:1b
+docker exec ollama ollama pull nomic-embed-text
 
-# Opzione C: OpenRouter (accesso a tutti i modelli)
+# ===== Opzione C: Gemini + embedding Ollama multilingue =====
+export LLM_PROVIDER=gemini
+export GEMINI_API_KEY=la_tua_api_key
+export EMBEDDING_PROVIDER=ollama
+export EMBEDDING_OLLAMA_MODEL=nomic-embed-text
+export EMBEDDING_DIMENSION=768
+
+# ===== Opzione D: OpenRouter =====
 export LLM_PROVIDER=openrouter
 export OPENROUTER_API_KEY=la_tua_api_key
 export OPENROUTER_MODEL=anthropic/claude-3-haiku
@@ -182,11 +233,22 @@ chmod +x start.sh
 ./start.sh
 ```
 
-Oppure manualmente:
+Oppure con profilo Ollama (tutto locale, nessuna API key):
+
+```bash
+# 1. Avvia Qdrant e Ollama
+docker compose up -d
+cd ollama && docker compose up -d && cd ..
+
+# 2. Avvia con profilo ollama
+mvn spring-boot:run -Dspring-boot.run.profiles=ollama
+```
+
+Oppure manualmente con Gemini:
 
 ```bash
 # 1. Avvia Qdrant
-docker-compose up -d
+docker compose up -d
 
 # 2. Compila e avvia
 mvn clean package
@@ -224,8 +286,9 @@ curl -X POST http://localhost:8092/api/query \
   "sources": [
     {
       "text": "Testo del chunk rilevante...",
-      "score": 0.89,
-      "filename": "documento.pdf"
+      "score": 0.776,
+      "filename": "documento.pdf",
+      "chunk_index": 3
     }
   ],
   "question": "Di cosa parla il documento?",
@@ -264,18 +327,31 @@ qdrant:
   port: 6334
   collection-name: documenti
 
-# RAG Settings
+# ============ EMBEDDING MODEL ============
+embedding:
+  # local = AllMiniLmL6V2 (offline, 384 dim, ottimizzato inglese)
+  # ollama = modello Ollama multilingue (supporto italiano)
+  provider: ${EMBEDDING_PROVIDER:local}
+  ollama:
+    model: ${EMBEDDING_OLLAMA_MODEL:nomic-embed-text}
+    timeout: ${EMBEDDING_OLLAMA_TIMEOUT:60}
+  # DEVE corrispondere al modello scelto: local=384, nomic-embed-text=768, bge-m3=1024
+  dimension: ${EMBEDDING_DIMENSION:384}
+
+# ============ RAG SETTINGS ============
 rag:
-  top-k: 15          # Chunks da recuperare per query
-  chunk-size: 300    # Dimensione chunks
-  chunk-overlap: 50  # Overlap tra chunks
+  top-k: 20           # Candidati iniziali da recuperare da Qdrant
+  min-score: 0.45     # Score minimo (cosine similarity). Chunks sotto soglia scartati
+  max-chunks-per-doc: 4  # Limite chunks per singolo documento (evita monopolio)
+  chunk-size: 500     # Dimensione chunks in caratteri (≥500 consigliato)
+  chunk-overlap: 100  # Overlap tra chunks consecutivi
 
 # ============ LLM CONFIGURATION ============
 llm:
   # Provider: gemini | ollama | openrouter
   provider: ${LLM_PROVIDER:gemini}
   temperature: 0.3
-  max-tokens: 1024
+  max-tokens: 2048
 
 # Google Gemini
 gemini:
@@ -285,8 +361,8 @@ gemini:
 # Ollama (Local)
 ollama:
   base-url: ${OLLAMA_BASE_URL:http://localhost:11434}
-  model: ${OLLAMA_MODEL:llama3.2}
-  timeout: 120
+  model: ${OLLAMA_MODEL:llama3.2:1b}
+  timeout: 300
 
 # OpenRouter
 openrouter:
@@ -311,10 +387,20 @@ file-polling:
 - `0.3-0.7`: Bilanciato (uso generale RAG)
 - `0.7-1.0`: Creativo (rischio allucinazioni)
 
-**Top-K:**
-- `5-10`: Veloce, documenti semplici
-- `10-20`: Più contesto, domande complesse
-- `20+`: Massimo contesto, più lento
+**top-k / min-score / max-chunks-per-doc:**
+- `top-k`: candidati totali recuperati da Qdrant (poi filtrati). Aumentare per più copertura
+- `min-score`: soglia cosine similarity (0.0-1.0). Valori consigliati:
+  - `0.40`: permissiva (più contesto, possibile rumore)
+  - `0.45`: bilanciata ✅ (default)
+  - `0.60`: restrittiva (solo match molto pertinenti)
+- `max-chunks-per-doc`: evita che un singolo file monopolizzi il contesto. Default: 4
+
+**chunk-size:**
+- `300`: chunk piccoli, match precisi (usato nel profilo Ollama per modelli con context window ridotto)
+- `500`: bilanciato ✅ (default)
+- `800+`: più contesto per chunk, meno chunk totali
+
+> ⚠️ Dopo aver modificato `chunk-size` o `embedding.dimension` è necessario **svuotare Qdrant e re-indicizzare** tutti i documenti.
 
 ## 📊 Architettura
 
@@ -331,18 +417,22 @@ Upload Flow:
 └──────┬──────────┘
        │
        ▼
-┌─────────────────┐
-│  Text Splitter  │  ← Divide in chunks
-└──────┬──────────┘
+┌─────────────────────────────────┐
+│  Text Splitter                  │  ← Divide in chunks
+│  chunk-size=500, overlap=100    │     + chunk_index metadata
+└──────┬──────────────────────────┘
+       │
+       ▼
+┌──────────────────────────────────────────┐
+│ Embedding Model (configurabile)          │
+│  local  → AllMiniLmL6V2   (384 dim)      │
+│  ollama → nomic-embed-text (768 dim) ✅  │
+│  ollama → bge-m3          (1024 dim)     │
+└──────┬───────────────────────────────────┘
        │
        ▼
 ┌─────────────────┐
-│ AllMiniLmL6V2   │  ← Embeddings (LOCALE)
-└──────┬──────────┘
-       │
-       ▼
-┌─────────────────┐
-│    Qdrant       │  ← Salva vettori
+│    Qdrant       │  ← Salva vettori (auto-create collection)
 └─────────────────┘
 
 
@@ -353,30 +443,36 @@ Query Flow:
        │
        ▼
 ┌─────────────────┐
-│ Embedding Model │  ← Vettorizza domanda
+│ Embedding Model │  ← Vettorizza domanda (stesso modello dell'ingestion)
+└──────┬──────────┘
+       │
+       ▼
+┌──────────────────────────────────┐
+│ Qdrant Search (top-k=20)         │  ← Cerca simili
+└──────┬───────────────────────────┘
+       │
+       ▼
+┌──────────────────────────────────┐
+│ Filtro min-score + per-doc limit │  ← Scarta chunk irrilevanti
+│  min-score=0.45, max/doc=4       │     e bilancia le fonti
+└──────┬───────────────────────────┘
+       │
+       ▼
+┌─────────────────┐
+│ Build Prompt    │  ← Combina chunks con fonte + score + chunk#
 └──────┬──────────┘
        │
        ▼
 ┌─────────────────┐
-│ Qdrant Search   │  ← Cerca simili
+│   LLM Provider  │  ← Gemini / Ollama / OpenRouter
+│  max-tokens=2048│
 └──────┬──────────┘
        │
        ▼
-┌─────────────────┐
-│ Build Prompt    │  ← Combina chunks
-└──────┬──────────┘
-       │
-       ▼
-┌─────────────────┐
-│   LLM Provider  │  ← Gemini/Ollama/
-│                 │     OpenRouter
-└──────┬──────────┘
-       │
-       ▼
-┌─────────────────┐
-│   Risposta +    │
-│    Sources      │
-└─────────────────┘
+┌──────────────────────────┐
+│   Risposta + Sources     │
+│   (score + chunk_index)  │
+└──────────────────────────┘
 ```
 
 ## 🐛 Troubleshooting
@@ -384,8 +480,8 @@ Query Flow:
 ### Qdrant connection refused
 ```bash
 docker ps | grep qdrant
-docker-compose up -d
-docker-compose logs qdrant
+docker compose up -d
+docker compose logs qdrant
 ```
 
 ### Invalid API key
@@ -397,10 +493,25 @@ echo $OPENROUTER_API_KEY
 
 ### Ollama non risponde
 ```bash
-ollama list           # Verifica modelli
-ollama serve          # Avvia server
-ollama pull llama3.2  # Scarica modello
+docker exec ollama ollama list              # Verifica modelli installati
+docker exec ollama ollama pull llama3.2:1b  # Scarica modello LLM
+docker exec ollama ollama pull nomic-embed-text  # Scarica modello embedding
 ```
+
+### Vector dimension error (CRITICAL)
+```
+Wrong input: Vector dimension error: expected dim: 384, got 768
+```
+Il modello embedding è cambiato rispetto a quando è stata creata la collection Qdrant.  
+**Soluzione**: svuota la collection e re-indicizza tutti i documenti:
+```bash
+# Elimina la collection esistente
+curl -X DELETE http://localhost:6333/collections/documenti
+
+# La nuova collection viene ricreata automaticamente al prossimo avvio
+# con la dimensione configurata in embedding.dimension
+```
+Poi ri-carica tutti i documenti.
 
 ### File too large
 ```yaml
@@ -411,6 +522,12 @@ spring:
       max-request-size: 200MB
 ```
 
+### Risposte vuote / "Non trovo informazioni"
+- Abbassa `rag.min-score` (es. da 0.45 a 0.35)
+- Verifica che il documento sia stato processato: `GET /api/documents/status/{filename}`
+- Verifica che embedding provider e dimensione coincidano tra ingestione e query
+- Con modelli Ollama piccoli (1b): abbassa `rag.chunk-size` a 300 e `rag.top-k` a 10
+
 ### Errore compilazione
 ```bash
 mvn clean package -DskipTests -U
@@ -420,11 +537,14 @@ mvn clean package -DskipTests -U
 
 | Componente | Metrica | Note |
 |------------|---------|------|
-| **Embedding** | ~1000 chunks/sec | Locale, gratuito |
-| **Gemini** | ~1-2 sec latenza | Gratuito |
-| **Ollama** | Dipende da hardware | Gratuito |
+| **AllMiniLmL6V2** | ~1000 chunks/sec | Locale offline, 384 dim, ottimizzato inglese |
+| **nomic-embed-text** (Ollama) | ~50-200 chunks/sec | 768 dim, multilingue, supporto italiano |
+| **bge-m3** (Ollama) | ~20-100 chunks/sec | 1024 dim, massima qualità multilingue |
+| **Gemini** | ~1-2 sec latenza | Gratuito fino a 1500 req/giorno |
+| **Ollama llama3.2:1b** | ~2-5 sec | 100% locale, nessuna API key |
+| **Ollama llama3.2 (3B)** | ~5-15 sec | Più preciso di 1b |
 | **OpenRouter** | ~1-3 sec latenza | Pay-per-use |
-| **Qdrant** | <100ms ricerca | 100k vettori |
+| **Qdrant** | <100ms ricerca | 100k+ vettori |
 
 ## 🗄️ Gestione Qdrant
 
@@ -454,10 +574,31 @@ rm -rf qdrant_storage/
 
 ## 📝 Note
 
-- Embeddings generati **localmente** (gratuito)
+- Embeddings generati **localmente** (AllMiniLmL6V2) oppure via **Ollama locale** (nessuna API esterna)
 - Solo le query LLM usano API esterne (o Ollama locale)
-- Dati Qdrant persistenti
-- File temporanei cancellati dopo processing
+- La collection Qdrant viene **creata automaticamente** all'avvio con la dimensione corretta
+- File temporanei cancellati dopo il processing
+- Ogni chunk contiene i metadata: `filename`, `upload_timestamp`, `chunk_index`, `chunk_total`
+
+## 🔄 Modifiche Recenti
+
+### RAG Quality Improvements
+- **Score threshold** (`min-score=0.45`): i chunk con cosine similarity < soglia vengono scartati
+- **Per-document limit** (`max-chunks-per-doc=4`): evita che un singolo file monopolizzi il contesto
+- **Chunk size aumentato** da 300 a 500 caratteri (overlap 50→100): migliore coerenza semantica
+- **max-tokens aumentato** da 1024 a 2048: evita troncamenti con contesti lunghi
+- **top-k aumentato** a 20 (candidati iniziali, poi filtrati per score)
+- **Prompt migliorato**: istruzioni per unire info da più fonti, gestione info contrastanti
+- **Metadata chunk**: `chunk_index` e `chunk_total` su ogni segmento per tracciabilità
+- **listIndexedDocuments**: usa Qdrant Scroll API con paginazione (non più embedding fittizio)
+- **Sources arricchite**: le fonti in risposta mostrano `score`, `chunk_index`, `filename`
+
+### Embedding Multilingue
+- **Embedding configurabile**: `EMBEDDING_PROVIDER=local|ollama` + `EMBEDDING_DIMENSION`
+- **Ollama embedding**: supporto per `nomic-embed-text` (768d), `bge-m3` (1024d), `mxbai-embed-large`
+- **Auto-creazione collection** Qdrant all'avvio con la dimensione corretta
+- **Fix bug LangChain4j 0.35**: `CustomQdrantEmbeddingStore` usa lo score Qdrant server-side (evita crash cosine similarity con vettori vuoti)
+- **Profilo Ollama**: preconfigurato con `nomic-embed-text` per documenti italiani
 
 ## 📜 Licenza
 
