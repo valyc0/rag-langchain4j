@@ -110,8 +110,8 @@ if confirm "3️⃣  Eliminare i dati Qdrant (qdrant_storage/ + volume Docker)?$
   docker volume rm rag-langchain4j_qdrant_storage 2>/dev/null \
     && echo -e "${GREEN}✅${NC}" || echo -e "${CYAN}(non trovato o già rimosso)${NC}"
 
-  echo -n "   🗑️  Rimuovendo directory qdrant_storage/... "
-  rm -rf "$SCRIPT_DIR/qdrant_storage"
+  echo -n "   🗑️  Rimuovendo directory qdrant_storage/ (sudo richiesto per file del container)... "
+  sudo rm -rf "$SCRIPT_DIR/qdrant_storage"
   echo -e "${GREEN}✅${NC}"
 else
   echo "   ⏭️  Saltato — dati Qdrant mantenuti"
