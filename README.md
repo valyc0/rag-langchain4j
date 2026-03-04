@@ -152,6 +152,39 @@ Il profilo `ollama` preimposta automaticamente:
 3. Genera API key
 4. Ricarica credito
 
+## 🖥️ Client Web (Vaadin)
+
+Il modulo `client-web/` fornisce un'interfaccia grafica completa basata su **Vaadin 24 + Spring Boot**.
+
+| Caratteristica | Dettaglio |
+|---------------|-----------|
+| **Porta** | 8093 |
+| **Framework** | Vaadin 24.3.0 + Spring Boot 3.2.0 |
+| **Backend** | Si connette al backend su `http://localhost:8092` |
+
+### Funzionalità UI
+
+- 🔍 **Query RAG** — Inserisci domande, visualizza risposte con score e fonti (shortcut `Ctrl+Enter`)
+- 📤 **Upload** — Drag & drop o click per caricare documenti (max 100MB)
+- 📚 **Documents** — Lista documenti indicizzati con chunk count, data upload e cancellazione
+- 💚 **System Status** — Health check in tempo reale dei servizi backend
+
+### Avvio Client Web
+
+```bash
+# Prerequisito: il backend deve essere già attivo su :8092
+cd client-web
+./start.sh
+# oppure:
+mvn spring-boot:run
+```
+
+Interfaccia disponibile su: **http://localhost:8093**
+
+Per documentazione dettagliata del client: [client-web/README.md](client-web/README.md)
+
+---
+
 ## 🆕 Auto-Polling Directory con Apache Camel
 
 Il sistema monitora automaticamente una directory per nuovi file:
@@ -337,6 +370,9 @@ embedding:
     timeout: ${EMBEDDING_OLLAMA_TIMEOUT:60}
   # DEVE corrispondere al modello scelto: local=384, nomic-embed-text=768, bge-m3=1024
   dimension: ${EMBEDDING_DIMENSION:384}
+  # Chunk per batch verso Ollama (evita timeout su documenti grandi)
+  # Riduci se vai in timeout (es. 5-10); aumenta se il modello è veloce
+  batch-size: 20  # default profilo ollama: 10
 
 # ============ RAG SETTINGS ============
 rag:
@@ -513,6 +549,19 @@ curl -X DELETE http://localhost:6333/collections/documenti
 ```
 Poi ri-carica tutti i documenti.
 
+### Timeout embedding su documenti grandi
+```
+java.io.InterruptedIOException: timeout (durante processamento PDF grande)
+```
+Ollama va in timeout perché riceve troppi chunk in una sola richiesta.  
+**Soluzione**: riduci `embedding.batch-size` e/o aumenta il timeout:
+```yaml
+embedding:
+  batch-size: 5        # meno chunk per richiesta
+  ollama:
+    timeout: 180       # secondi
+```
+
 ### File too large
 ```yaml
 spring:
@@ -599,6 +648,16 @@ rm -rf qdrant_storage/
 - **Auto-creazione collection** Qdrant all'avvio con la dimensione corretta
 - **Fix bug LangChain4j 0.35**: `CustomQdrantEmbeddingStore` usa lo score Qdrant server-side (evita crash cosine similarity con vettori vuoti)
 - **Profilo Ollama**: preconfigurato con `nomic-embed-text` per documenti italiani
+
+### Batch Embedding (Fix Timeout Documenti Grandi)
+- **Problema**: `embedAll()` inviava tutti i chunk in una singola chiamata HTTP → timeout su PDF grandi
+- **Soluzione**: nuovo parametro `embedding.batch-size` che invia i chunk in mini-batch
+- **Default**: 20 chunk/batch (profilo; profilo ollama: 10), timeout embedding: 120s
+- **Testato**: PDF 1.7MB (Inferno di Dante) → 2637 chunk indicizzati con successo
+
+### Client Web Vaadin
+- Interfaccia grafica su porta **8093** per query, upload, gestione documenti e monitoraggio
+- Modulo separato in `client-web/`, avviabile indipendentemente dal backend
 
 ## 📜 Licenza
 
