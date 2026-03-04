@@ -34,10 +34,12 @@ embedding:
     # nomic-embed-text: 768 dim, multilingue, ottimo rapporto qualità/velocità
     # bge-m3:           1024 dim, migliore qualità multilingue ma più lento
     model: ${EMBEDDING_OLLAMA_MODEL:nomic-embed-text}
-    timeout: 60
+    timeout: 120
     # Installa con: docker exec ollama ollama pull nomic-embed-text
   # Dimensione vettore: nomic-embed-text=768, bge-m3=1024
   dimension: ${EMBEDDING_DIMENSION:768}
+  # Numero di chunk per singola chiamata HTTP a Ollama (evita timeout su doc grandi)
+  batch-size: 10
 
 # Configurazione RAG ottimizzata per modelli piccoli come llama3.2:1b
 rag:

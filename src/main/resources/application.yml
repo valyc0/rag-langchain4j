@@ -51,6 +51,9 @@ embedding:
   # bge-m3:                1024
   # mxbai-embed-large:     1024
   dimension: ${EMBEDDING_DIMENSION:384}
+  # Chunk mandati a Ollama per singola richiesta HTTP (evita timeout su doc grandi)
+  # Aumentare se l'embedding model è veloce; diminuire se si va in timeout
+  batch-size: 20
 
 # Configurazione RAG
 rag:

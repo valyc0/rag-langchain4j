@@ -56,6 +56,9 @@ public class DocumentProcessingService {
     
     @Value("${qdrant.collection-name:documenti}")
     private String collectionName;
+
+    @Value("${embedding.batch-size:20}")
+    private int embeddingBatchSize; // Numero di chunk per batch verso Ollama
     
     public DocumentProcessingService(
             EmbeddingStore<TextSegment> embeddingStore,
@@ -246,8 +249,30 @@ public class DocumentProcessingService {
      * Genera embeddings per i chunks
      * Usa AllMiniLmL6V2 (locale, gratis, 384 dimensioni)
      */
+    /**
+     * Genera embedding in mini-batch per evitare timeout con Ollama su documenti grandi.
+     * Ogni batch viene inviato separatamente; i risultati vengono concatenati.
+     */
     private List<Embedding> generateEmbeddings(List<TextSegment> chunks) {
-        return embeddingModel.embedAll(chunks).content();
+        if (embeddingBatchSize <= 0 || chunks.size() <= embeddingBatchSize) {
+            return embeddingModel.embedAll(chunks).content();
+        }
+
+        log.info("🔢 Embedding in batch da {} chunk (totale: {})", embeddingBatchSize, chunks.size());
+        List<Embedding> all = new ArrayList<>(chunks.size());
+        int totalBatches = (int) Math.ceil((double) chunks.size() / embeddingBatchSize);
+
+        for (int i = 0; i < chunks.size(); i += embeddingBatchSize) {
+            int end = Math.min(i + embeddingBatchSize, chunks.size());
+            List<TextSegment> batch = chunks.subList(i, end);
+            int batchNum = (i / embeddingBatchSize) + 1;
+            log.debug("  Batch {}/{}: chunk {}-{}", batchNum, totalBatches, i + 1, end);
+            List<Embedding> batchEmbeddings = embeddingModel.embedAll(batch).content();
+            all.addAll(batchEmbeddings);
+        }
+
+        log.info("✅ Embedding completati: {} vettori", all.size());
+        return all;
     }
 
     /**
