@@ -6,6 +6,7 @@ import com.vaadin.flow.component.button.Button;
 import com.vaadin.flow.component.button.ButtonVariant;
 import com.vaadin.flow.component.html.H2;
 import com.vaadin.flow.component.html.Paragraph;
+import com.vaadin.flow.component.UI;
 import com.vaadin.flow.component.notification.Notification;
 import com.vaadin.flow.component.notification.NotificationVariant;
 import com.vaadin.flow.component.orderedlayout.VerticalLayout;
@@ -107,25 +108,9 @@ public class UploadView extends VerticalLayout {
             );
             notification.addThemeVariants(NotificationVariant.LUMO_SUCCESS);
 
-            // Update status
-            Object status = response.getData().get("status");
-            Object sizeBytes = response.getData().get("size_bytes");
-            Object chunks = response.getData().get("chunks_created");
-            
-            String statusText = "✅ File uploaded successfully!\n" +
-                "Status: " + status + "\n" +
-                "Size: " + formatBytes((Integer) sizeBytes);
-            
-            if (chunks != null) {
-                statusText += "\nChunks created: " + chunks;
-            }
-            
-            statusLabel.setText(statusText);
-            statusLabel.getStyle().set("white-space", "pre-line");
-            statusLabel.getStyle().set("color", "var(--lumo-success-color)");
-
-            // Clear upload component
+            // Naviga a Documents dopo l'upload per vedere lo stato in tempo reale
             upload.clearFileList();
+            UI.getCurrent().navigate(DocumentListView.class);
 
         } catch (Exception e) {
             log.error("Error uploading file", e);

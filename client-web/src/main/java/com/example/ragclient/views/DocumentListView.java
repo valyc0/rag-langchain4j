@@ -1,18 +1,21 @@
 package com.example.ragclient.views;
 
-import com.example.ragclient.dto.DocumentListResponse;
 import com.example.ragclient.service.RagApiService;
+import com.vaadin.flow.component.UI;
 import com.vaadin.flow.component.button.Button;
 import com.vaadin.flow.component.button.ButtonVariant;
 import com.vaadin.flow.component.confirmdialog.ConfirmDialog;
 import com.vaadin.flow.component.grid.Grid;
 import com.vaadin.flow.component.html.H2;
 import com.vaadin.flow.component.html.Paragraph;
+import com.vaadin.flow.component.html.Span;
 import com.vaadin.flow.component.icon.VaadinIcon;
 import com.vaadin.flow.component.notification.Notification;
 import com.vaadin.flow.component.notification.NotificationVariant;
 import com.vaadin.flow.component.orderedlayout.HorizontalLayout;
 import com.vaadin.flow.component.orderedlayout.VerticalLayout;
+import com.vaadin.flow.router.BeforeEnterEvent;
+import com.vaadin.flow.router.BeforeEnterObserver;
 import com.vaadin.flow.router.PageTitle;
 import com.vaadin.flow.router.Route;
 import lombok.AllArgsConstructor;
@@ -28,16 +31,18 @@ import java.util.Map;
 @Route(value = "documents", layout = MainLayout.class)
 @PageTitle("Documents | RAG Client")
 @Slf4j
-public class DocumentListView extends VerticalLayout {
+public class DocumentListView extends VerticalLayout implements BeforeEnterObserver {
 
     private final RagApiService ragApiService;
     private final Grid<DocumentItem> grid;
     private final Paragraph statsLabel;
+    private com.vaadin.flow.shared.Registration pollingRegistration;
 
     @Data
     @AllArgsConstructor
     public static class DocumentItem {
         private String filename;
+        private String status;
         private Integer chunks;
         private Long timestamp;
         private String formattedDate;
@@ -73,25 +78,31 @@ public class DocumentListView extends VerticalLayout {
         // Grid
         grid = new Grid<>(DocumentItem.class, false);
         grid.setHeight("600px");
-        
+
         grid.addColumn(DocumentItem::getFilename)
             .setHeader("📄 Filename")
             .setFlexGrow(3)
             .setSortable(true);
-        
-        grid.addColumn(DocumentItem::getChunks)
+
+        grid.addComponentColumn(item -> statusBadge(item.getStatus()))
+            .setHeader("🔄 Status")
+            .setFlexGrow(1);
+
+        grid.addColumn(item -> item.getStatus().equals("READY") ? String.valueOf(item.getChunks()) : "—")
             .setHeader("📊 Chunks")
             .setFlexGrow(1)
             .setSortable(true);
-        
+
         grid.addColumn(DocumentItem::getFormattedDate)
             .setHeader("📅 Upload Date")
             .setFlexGrow(2)
             .setSortable(true);
-        
+
         grid.addComponentColumn(item -> {
             Button deleteButton = new Button("Delete", VaadinIcon.TRASH.create());
             deleteButton.addThemeVariants(ButtonVariant.LUMO_ERROR, ButtonVariant.LUMO_SMALL);
+            // Disabilita delete se in PROCESSING
+            deleteButton.setEnabled(!"PROCESSING".equals(item.getStatus()));
             deleteButton.addClickListener(event -> confirmDelete(item.getFilename()));
             return deleteButton;
         }).setHeader("Actions").setFlexGrow(1);
@@ -104,37 +115,53 @@ public class DocumentListView extends VerticalLayout {
 
     private void loadDocuments() {
         try {
-            DocumentListResponse response = ragApiService.getDocumentList();
-            
-            // Update stats
-            statsLabel.setText(String.format(
-                "📊 Total: %d documents, %d chunks",
-                response.getTotal_documents(),
-                response.getTotal_chunks()
-            ));
+            // Usa /statuses: restituisce TUTTI i documenti in tutti gli stati
+            @SuppressWarnings("unchecked")
+            Map<String, Object> statuses = ragApiService.getAllDocumentStatuses();
 
-            // Prepare grid data
             List<DocumentItem> items = new ArrayList<>();
             SimpleDateFormat sdf = new SimpleDateFormat("dd/MM/yyyy HH:mm:ss");
-            
-            if (response.getDocuments() != null) {
-                for (Map.Entry<String, Integer> entry : response.getDocuments().entrySet()) {
+            boolean hasProcessing = false;
+
+            if (statuses != null) {
+                for (Map.Entry<String, Object> entry : statuses.entrySet()) {
                     String filename = entry.getKey();
-                    Integer chunks = entry.getValue();
-                    Long timestamp = response.getTimestamps() != null ? 
-                        response.getTimestamps().get(filename) : null;
-                    String formattedDate = timestamp != null ? 
-                        sdf.format(new Date(timestamp)) : "N/A";
-                    
-                    items.add(new DocumentItem(filename, chunks, timestamp, formattedDate));
+                    @SuppressWarnings("unchecked")
+                    Map<String, Object> info = (Map<String, Object>) entry.getValue();
+
+                    String status = (String) info.getOrDefault("status", "UNKNOWN");
+                    Number chunksNum = (Number) info.getOrDefault("chunks", 0);
+                    Integer chunks = chunksNum != null ? chunksNum.intValue() : 0;
+                    Number tsNum = (Number) info.getOrDefault("uploadTimestamp", null);
+                    Long timestamp = tsNum != null ? tsNum.longValue() : null;
+                    String formattedDate = timestamp != null ? sdf.format(new Date(timestamp)) : "N/A";
+
+                    items.add(new DocumentItem(filename, status, chunks, timestamp, formattedDate));
+                    if ("PROCESSING".equals(status)) hasProcessing = true;
                 }
             }
 
+            // Ordina: PROCESSING prima, poi READY, poi ERROR
+            items.sort((a, b) -> statusOrder(a.getStatus()) - statusOrder(b.getStatus()));
+
             grid.setItems(items);
 
-            if (items.isEmpty()) {
-                Notification.show("ℹ️ No documents found. Upload some documents first!", 
-                    3000, Notification.Position.MIDDLE);
+            long ready = items.stream().filter(i -> "READY".equals(i.getStatus())).count();
+            long processing = items.stream().filter(i -> "PROCESSING".equals(i.getStatus())).count();
+            long error = items.stream().filter(i -> "ERROR".equals(i.getStatus())).count();
+            int totalChunks = items.stream().filter(i -> "READY".equals(i.getStatus()))
+                .mapToInt(DocumentItem::getChunks).sum();
+
+            statsLabel.setText(String.format(
+                "📊 Totale: %d documenti  |  ✅ READY: %d (%d chunks)  |  ⏳ PROCESSING: %d  |  ❌ ERROR: %d",
+                items.size(), ready, totalChunks, processing, error
+            ));
+
+            // Auto-refresh ogni 3s se ci sono documenti in elaborazione
+            if (hasProcessing) {
+                startPolling();
+            } else {
+                stopPolling();
             }
 
         } catch (Exception e) {
@@ -146,6 +173,63 @@ public class DocumentListView extends VerticalLayout {
             );
             notification.addThemeVariants(NotificationVariant.LUMO_ERROR);
         }
+    }
+
+    private int statusOrder(String status) {
+        return switch (status) {
+            case "PROCESSING" -> 0;
+            case "READY"      -> 1;
+            case "ERROR"      -> 2;
+            default           -> 3;
+        };
+    }
+
+    private Span statusBadge(String status) {
+        Span badge = new Span(status);
+        badge.getStyle()
+            .set("padding", "2px 10px")
+            .set("border-radius", "12px")
+            .set("font-size", "0.8em")
+            .set("font-weight", "bold");
+        switch (status) {
+            case "READY"      -> badge.getStyle()
+                .set("background", "#e8f5e9").set("color", "#2e7d32");
+            case "PROCESSING" -> badge.getStyle()
+                .set("background", "#fff8e1").set("color", "#f57f17");
+            case "ERROR"      -> badge.getStyle()
+                .set("background", "#ffebee").set("color", "#c62828");
+            default           -> badge.getStyle()
+                .set("background", "#f5f5f5").set("color", "#616161");
+        }
+        return badge;
+    }
+
+    private void startPolling() {
+        if (pollingRegistration != null) return; // già attivo
+        pollingRegistration = UI.getCurrent().addPollListener(event -> loadDocuments());
+        UI.getCurrent().setPollInterval(3000);
+        log.debug("🔄 Auto-refresh avviato (3s)");
+    }
+
+    private void stopPolling() {
+        if (pollingRegistration != null) {
+            pollingRegistration.remove();
+            pollingRegistration = null;
+            UI.getCurrent().setPollInterval(-1);
+            log.debug("⏹️ Auto-refresh fermato");
+        }
+    }
+
+    @Override
+    public void beforeEnter(BeforeEnterEvent event) {
+        // Ricarica sempre quando si entra nella vista
+        loadDocuments();
+    }
+
+    @Override
+    protected void onDetach(com.vaadin.flow.component.DetachEvent detachEvent) {
+        stopPolling();
+        super.onDetach(detachEvent);
     }
 
     private void confirmDelete(String filename) {
