@@ -5,6 +5,7 @@ import dev.langchain4j.model.embedding.EmbeddingModel;
 import dev.langchain4j.model.embedding.onnx.allminilml6v2.AllMiniLmL6V2EmbeddingModel;
 import dev.langchain4j.model.googleai.GoogleAiGeminiChatModel;
 import dev.langchain4j.model.ollama.OllamaChatModel;
+import dev.langchain4j.model.ollama.OllamaEmbeddingModel;
 import dev.langchain4j.model.openai.OpenAiChatModel;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
@@ -49,6 +50,16 @@ public class LlmConfig {
 
     @Value("${ollama.timeout:120}")
     private Integer ollamaTimeout;
+
+    // Embedding settings
+    @Value("${embedding.provider:local}")
+    private String embeddingProvider;
+
+    @Value("${embedding.ollama.model:nomic-embed-text}")
+    private String embeddingOllamaModel;
+
+    @Value("${embedding.ollama.timeout:60}")
+    private Integer embeddingOllamaTimeout;
 
     // OpenRouter settings
     @Value("${openrouter.api-key:}")
@@ -155,13 +166,42 @@ public class LlmConfig {
     }
 
     /**
-     * Embedding Model LOCALE e GRATUITO
-     * Non richiede API key, gira completamente offline
-     * Genera vettori di 384 dimensioni
+     * Embedding Model configurabile:
+     * - "local": AllMiniLmL6V2 (offline, 384 dim, ottimizzato inglese)
+     * - "ollama": modello Ollama (multilingue, es. nomic-embed-text 768 dim, bge-m3 1024 dim)
+     *
+     * ATTENZIONE: se si cambia provider/modello occorre svuotare la collection
+     * Qdrant e ri-indicizzare tutti i documenti (dimensioni vettore diverse).
      */
     @Bean
     public EmbeddingModel embeddingModel() {
-        log.info("✅ Inizializzazione Embedding Model locale (AllMiniLmL6V2)");
-        return new AllMiniLmL6V2EmbeddingModel();
+        return switch (embeddingProvider.toLowerCase()) {
+            case "ollama" -> createOllamaEmbeddingModel();
+            default -> {
+                if (!embeddingProvider.equalsIgnoreCase("local")) {
+                    log.warn("⚠️ Embedding provider '{}' non riconosciuto, uso AllMiniLmL6V2 locale",
+                            embeddingProvider);
+                }
+                log.info("✅ Embedding Model locale: AllMiniLmL6V2 (384 dim, offline)");
+                yield new AllMiniLmL6V2EmbeddingModel();
+            }
+        };
+    }
+
+    /**
+     * Crea l'embedding model tramite Ollama.
+     * Il modello deve essere già installato: ollama pull <modello>
+     * Dimensioni vettore per modello:
+     *   nomic-embed-text   → 768
+     *   bge-m3             → 1024
+     *   mxbai-embed-large  → 1024
+     */
+    private EmbeddingModel createOllamaEmbeddingModel() {
+        log.info("✅ Embedding Model Ollama: {} (base-url: {})", embeddingOllamaModel, ollamaBaseUrl);
+        return OllamaEmbeddingModel.builder()
+                .baseUrl(ollamaBaseUrl)
+                .modelName(embeddingOllamaModel)
+                .timeout(Duration.ofSeconds(embeddingOllamaTimeout))
+                .build();
     }
 }

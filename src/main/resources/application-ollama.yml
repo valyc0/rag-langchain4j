@@ -24,14 +24,31 @@ qdrant:
   collection-name: documenti
   use-tls: false
 
+# ============================================
+# CONFIGURAZIONE EMBEDDING MODEL
+# ============================================
+embedding:
+  # Usa Ollama per embedding multilingue (supporto italiano)
+  provider: ${EMBEDDING_PROVIDER:ollama}
+  ollama:
+    # nomic-embed-text: 768 dim, multilingue, ottimo rapporto qualità/velocità
+    # bge-m3:           1024 dim, migliore qualità multilingue ma più lento
+    model: ${EMBEDDING_OLLAMA_MODEL:nomic-embed-text}
+    timeout: 60
+    # Installa con: docker exec ollama ollama pull nomic-embed-text
+  # Dimensione vettore: nomic-embed-text=768, bge-m3=1024
+  dimension: ${EMBEDDING_DIMENSION:768}
+
 # Configurazione RAG ottimizzata per modelli piccoli come llama3.2:1b
 rag:
   # Chunks ridotti per modelli piccoli (context window limitato)
   top-k: 10
-  
-  # Chunks più piccoli per modelli leggeri
-  chunk-size: 250
-  chunk-overlap: 40
+  min-score: 0.40
+  max-chunks-per-doc: 3
+
+  # Chunks più piccoli per modelli leggeri (context window ~2048 token)
+  chunk-size: 300
+  chunk-overlap: 60
 
 # Configurazione File Polling
 file-polling:

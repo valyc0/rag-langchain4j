@@ -24,6 +24,7 @@ import java.io.InputStream;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.StandardCopyOption;
+import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -214,7 +215,7 @@ public class DocumentProcessingService {
     }
 
     /**
-     * Divide il testo in chunks con overlap
+     * Divide il testo in chunks con overlap e aggiunge metadati (filename, timestamp, chunk_index)
      */
     private List<TextSegment> splitIntoChunks(String text, String filename) {
         DocumentSplitter splitter = DocumentSplitters.recursive(
@@ -227,8 +228,18 @@ public class DocumentProcessingService {
                 .put("upload_timestamp", System.currentTimeMillis());
         
         Document document = Document.from(text, metadata);
-        
-        return splitter.split(document);
+        List<TextSegment> segments = splitter.split(document);
+
+        // Aggiunge chunk_index a ogni segmento per tracciabilità e ordinamento
+        List<TextSegment> indexedSegments = new ArrayList<>();
+        for (int i = 0; i < segments.size(); i++) {
+            TextSegment seg = segments.get(i);
+            dev.langchain4j.data.document.Metadata enriched = seg.metadata()
+                    .put("chunk_index", i)
+                    .put("chunk_total", segments.size());
+            indexedSegments.add(TextSegment.from(seg.text(), enriched));
+        }
+        return indexedSegments;
     }
 
     /**
@@ -240,50 +251,72 @@ public class DocumentProcessingService {
     }
 
     /**
-     * Lista tutti i documenti indicizzati recuperando i metadata da Qdrant
+     * Lista tutti i documenti indicizzati usando la Scroll API di Qdrant.
+     * Itera su tutti i punti della collection in pagine da 250 per estrarre i metadata
+     * senza dover fare una ricerca semantica con embedding fittizio.
      */
     public Map<String, Object> listIndexedDocuments() {
-        log.info("📋 Recupero lista documenti indicizzati");
-        
+        log.info("📋 Recupero lista documenti indicizzati (scroll Qdrant)");
+
         try {
-            // Recupera alcuni chunk per estrarre i metadata
-            // Qdrant non ha un'API diretta per listare metadata unici, quindi facciamo una ricerca generica
-            dev.langchain4j.data.message.ChatMessage dummyMessage = 
-                dev.langchain4j.data.message.UserMessage.from("list");
-            Embedding dummyEmbedding = embeddingModel.embed(dummyMessage.text()).content();
-            
-            // Recupera molti risultati per avere una panoramica
-            List<dev.langchain4j.store.embedding.EmbeddingMatch<TextSegment>> matches = 
-                embeddingStore.findRelevant(dummyEmbedding, 100);
-            
-            // Estrai i filename unici e conta i chunks
             Map<String, Integer> fileStats = new HashMap<>();
             Map<String, Long> fileTimestamps = new HashMap<>();
-            
-            for (var match : matches) {
-                TextSegment segment = match.embedded();
-                if (segment != null && segment.metadata() != null) {
-                    String filename = segment.metadata().getString("filename");
-                    Long timestamp = segment.metadata().getLong("upload_timestamp");
-                    
-                    if (filename != null) {
-                        fileStats.put(filename, fileStats.getOrDefault(filename, 0) + 1);
-                        if (timestamp != null && !fileTimestamps.containsKey(filename)) {
-                            fileTimestamps.put(filename, timestamp);
+            io.qdrant.client.grpc.Points.PointId offset = null;
+            final int PAGE_SIZE = 250;
+            int totalPoints = 0;
+
+            do {
+                ScrollPoints.Builder builder = ScrollPoints.newBuilder()
+                        .setCollectionName(collectionName)
+                        .setLimit(PAGE_SIZE)
+                        .setWithPayload(io.qdrant.client.grpc.Points.WithPayloadSelector.newBuilder()
+                                .setEnable(true)
+                                .build());
+                if (offset != null) {
+                    builder.setOffset(offset);
+                }
+
+                ScrollResponse response = qdrantClient.scrollAsync(builder.build()).get();
+                List<io.qdrant.client.grpc.Points.RetrievedPoint> points = response.getResultList();
+                totalPoints += points.size();
+
+                for (io.qdrant.client.grpc.Points.RetrievedPoint point : points) {
+                    var payload = point.getPayloadMap();
+                    // LangChain4j 0.35 usa struttura FLAT: "filename", "upload_timestamp" direttamente nel payload
+                    var filenameVal = payload.get("filename");
+                    var tsVal = payload.get("upload_timestamp");
+                    if (filenameVal != null && filenameVal.hasStringValue()) {
+                        String filename = filenameVal.getStringValue();
+                        if (!filename.isEmpty()) {
+                            fileStats.merge(filename, 1, Integer::sum);
+                            if (tsVal != null && !fileTimestamps.containsKey(filename)) {
+                                long ts = tsVal.hasIntegerValue()
+                                        ? tsVal.getIntegerValue()
+                                        : (long) tsVal.getDoubleValue();
+                                fileTimestamps.put(filename, ts);
+                            }
                         }
                     }
                 }
-            }
-            
-            log.info("✅ Trovati {} documenti unici", fileStats.size());
-            
+
+                // Imposta l'offset per la pagina successiva
+                if (!response.hasNextPageOffset()) {
+                    offset = null;
+                } else {
+                    offset = response.getNextPageOffset();
+                }
+
+            } while (offset != null);
+
+            log.info("✅ Trovati {} documenti unici su {} chunks totali", fileStats.size(), totalPoints);
+
             return Map.of(
                 "total_documents", fileStats.size(),
-                "total_chunks", matches.size(),
+                "total_chunks", totalPoints,
                 "documents", fileStats,
                 "timestamps", fileTimestamps
             );
-            
+
         } catch (Exception e) {
             log.error("❌ Errore nel recupero documenti", e);
             return Map.of(

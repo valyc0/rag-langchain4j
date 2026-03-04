@@ -11,6 +11,8 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 
+import java.util.ArrayList;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.stream.Collectors;
@@ -32,7 +34,13 @@ public class RagQueryService {
     private final ChatLanguageModel chatLanguageModel;
 
     @Value("${rag.top-k:10}")
-    private int topK; // Numero di chunks da recuperare (configurabile)
+    private int topK; // Numero di chunks candidati da recuperare
+
+    @Value("${rag.min-score:0.45}")
+    private double minScore; // Score minimo per filtrare chunks irrilevanti
+
+    @Value("${rag.max-chunks-per-doc:4}")
+    private int maxChunksPerDoc; // Limite di chunks per singolo documento
 
     // Configurazione LLM per logging
     @Value("${llm.provider:gemini}")
@@ -60,11 +68,11 @@ public class RagQueryService {
         Embedding questionEmbedding = embeddingModel.embed(question).content();
         log.debug("🔢 Embedding domanda generato: {} dimensioni", questionEmbedding.dimension());
         
-        // 2. Cerca chunks simili in Qdrant (prendiamo più risultati)
-        List<EmbeddingMatch<TextSegment>> relevantChunks = 
+        // 2. Cerca chunks simili in Qdrant (prendiamo più candidati per poi filtrare)
+        List<EmbeddingMatch<TextSegment>> candidates = 
                 embeddingStore.findRelevant(questionEmbedding, topK);
         
-        if (relevantChunks.isEmpty()) {
+        if (candidates.isEmpty()) {
             log.warn("⚠️ Nessun documento trovato in Qdrant");
             return Map.of(
                 "answer", "Non ho trovato documenti per rispondere a questa domanda. " +
@@ -73,29 +81,58 @@ public class RagQueryService {
                 "question", question
             );
         }
+
+        // 3. Filtra per score minimo (rimuove chunks irrilevanti)
+        List<EmbeddingMatch<TextSegment>> filtered = candidates.stream()
+                .filter(m -> m.score() >= minScore)
+                .collect(Collectors.toList());
+
+        log.info("📊 Chunks: {} candidati, {} sopra soglia min-score={}", 
+                candidates.size(), filtered.size(), minScore);
+
+        if (filtered.isEmpty()) {
+            log.warn("⚠️ Tutti i chunks sotto la soglia di score {}", minScore);
+            return Map.of(
+                "answer", "Non ho trovato informazioni sufficientemente rilevanti nei documenti per rispondere a questa domanda.",
+                "sources", List.of(),
+                "question", question,
+                "chunks_used", 0
+            );
+        }
+
+        // 4. Limita il numero di chunks per documento (evita che un file domini tutto il contesto)
+        List<EmbeddingMatch<TextSegment>> relevantChunks = applyPerDocumentLimit(filtered);
         
-        log.info("📚 Trovati {} chunks rilevanti", relevantChunks.size());
-        
+        log.info("📚 Chunks finali nel contesto: {} (dopo limite {}/doc)", 
+                relevantChunks.size(), maxChunksPerDoc);
+
         // Log degli score per debug
         relevantChunks.forEach(match -> 
-            log.debug("📊 Score: {}, File: {}", 
+            log.debug("📊 Score: {:.3f}, File: {}", 
                 match.score(), 
                 match.embedded().metadata("filename"))
         );
         
-        // 3. Estrai il testo e crea il contesto
-        String context = relevantChunks.stream()
-                .map(match -> {
-                    String filename = match.embedded().metadata("filename");
-                    return String.format("[Fonte: %s]\n%s", filename, match.embedded().text());
-                })
-                .collect(Collectors.joining("\n\n---\n\n"));
+        // 5. Estrai il testo e crea il contesto (con metadata di qualità)
+        StringBuilder contextBuilder = new StringBuilder();
+        for (int i = 0; i < relevantChunks.size(); i++) {
+            EmbeddingMatch<TextSegment> match = relevantChunks.get(i);
+            String filename = match.embedded().metadata("filename");
+            Integer chunkIdx = match.embedded().metadata().getInteger("chunk_index");
+            String chunkRef = chunkIdx != null ? " #" + chunkIdx : "";
+            contextBuilder.append(String.format("[Fonte %d: %s%s | rilevanza: %.2f]\n%s",
+                    i + 1, filename, chunkRef, match.score(), match.embedded().text()));
+            if (i < relevantChunks.size() - 1) {
+                contextBuilder.append("\n\n---\n\n");
+            }
+        }
+        String context = contextBuilder.toString();
         
-        // 4. Costruisci il prompt per Gemini
+        // 6. Costruisci il prompt per LLM
         String prompt = buildPrompt(context, question);
         log.debug("📝 Prompt costruito: {} caratteri", prompt.length());
         
-        // 5. Chiedi all'LLM
+        // 7. Chiedi all'LLM
         String answer;
         try {
             long startTime = System.currentTimeMillis();
@@ -108,13 +145,15 @@ public class RagQueryService {
             answer = "Errore nella generazione della risposta. Il prompt potrebbe essere troppo lungo o ci sono problemi con l'API " + llmProvider + ".";
         }
         
-        // 6. Prepara le fonti (sources) con score
+        // 8. Prepara le fonti (sources) con score
         List<Map<String, Object>> sources = relevantChunks.stream()
                 .map(match -> {
                     Map<String, Object> source = new java.util.HashMap<>();
                     source.put("text", match.embedded().text());
                     source.put("score", match.score());
                     source.put("filename", match.embedded().metadata("filename"));
+                    Integer chunkIdx = match.embedded().metadata().getInteger("chunk_index");
+                    if (chunkIdx != null) source.put("chunk_index", chunkIdx);
                     return source;
                 })
                 .collect(Collectors.toList());
@@ -128,26 +167,47 @@ public class RagQueryService {
     }
 
     /**
-     * Costruisce il prompt per Gemini con contesto e domanda
+     * Limita il numero di chunks per documento per evitare che un singolo file
+     * domini tutto il contesto della risposta. L'ordine per score viene mantenuto.
+     */
+    private List<EmbeddingMatch<TextSegment>> applyPerDocumentLimit(
+            List<EmbeddingMatch<TextSegment>> sorted) {
+        Map<String, Integer> docCount = new LinkedHashMap<>();
+        List<EmbeddingMatch<TextSegment>> result = new ArrayList<>();
+        for (EmbeddingMatch<TextSegment> match : sorted) {
+            String filename = match.embedded().metadata("filename");
+            if (filename == null) filename = "unknown";
+            int count = docCount.getOrDefault(filename, 0);
+            if (count < maxChunksPerDoc) {
+                result.add(match);
+                docCount.put(filename, count + 1);
+            }
+        }
+        return result;
+    }
+
+    /**
+     * Costruisce il prompt con il contesto e la domanda
      */
     private String buildPrompt(String context, String question) {
         return String.format("""
-            Sei un assistente intelligente che risponde a domande basandoti ESCLUSIVAMENTE sulle informazioni fornite nel contesto.
-            
-            REGOLE IMPORTANTI:
-            - Rispondi SOLO utilizzando le informazioni esplicite nel contesto fornito
-            - Se la risposta è nel contesto, citala in modo preciso e completo
-            - Se la risposta NON è nel contesto, rispondi: "Non trovo questa informazione nei documenti caricati"
-            - NON inventare, NON dedurre, NON aggiungere informazioni esterne
-            - Leggi TUTTO il contesto attentamente prima di rispondere
-            - Se trovi la risposta, forniscila in modo chiaro e diretto
-            
-            CONTESTO (da documenti caricati):
+            Sei un assistente esperto che risponde a domande basandosi ESCLUSIVAMENTE sulle informazioni fornite nel contesto.
+
+            ISTRUZIONI:
+            1. Leggi attentamente TUTTO il contesto prima di rispondere
+            2. Rispondi SOLO usando informazioni presenti nel contesto (citando la fonte quando possibile)
+            3. Se la risposta richiede di unire informazioni da più fonti, fallo in modo coerente
+            4. Se l'informazione NON è nel contesto, rispondi esattamente: "Non trovo questa informazione nei documenti caricati"
+            5. NON inventare, NON dedurre, NON aggiungere conoscenze esterne
+            6. Fornisci risposte complete, strutturate e facili da leggere
+            7. Se ci sono informazioni contrastanti tra le fonti, segnalalo esplicitamente
+
+            CONTESTO (estratto dai documenti indicizzati):
             %s
-            
-            DOMANDA DELL'UTENTE: %s
-            
-            RISPOSTA (basata SOLO sul contesto sopra):
+
+            DOMANDA: %s
+
+            RISPOSTA (basata esclusivamente sul contesto sopra):
             """, context, question);
     }
 
